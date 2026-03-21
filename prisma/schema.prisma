@@ -1,0 +1,306 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  PROPERTY_MANAGER
+  OWNER
+}
+
+enum PropertyType {
+  APARTMENT
+  HOUSE
+  STUDIO
+  TOWNHOUSE
+  OTHER
+}
+
+enum PropertyStatus {
+  ACTIVE
+  INACTIVE
+  ONBOARDING
+}
+
+enum BookingSource {
+  AIRBNB
+  BOOKING_COM
+  DIRECT
+  OTHER
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
+
+enum ReceiptCategory {
+  MAINTENANCE
+  CLEANING
+  SUPPLIES
+  UTILITIES
+  RATES_TAXES
+  INSURANCE
+  OTHER
+}
+
+enum StatementSource {
+  UPLOADED
+  GENERATED
+}
+
+enum StatementStatus {
+  DRAFT
+  FINAL
+}
+
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  full_name  String
+  role       Role     @default(PROPERTY_MANAGER)
+  created_at DateTime @default(now())
+}
+
+model Property {
+  id              String         @id @default(uuid())
+  name            String
+  description     String?
+  address         String
+  suburb          String?
+  city            String
+  unit_number     String?
+  building_name  String?
+  type            PropertyType   @default(APARTMENT)
+  bedrooms        Int            @default(1)
+  bathrooms       Int            @default(1)
+  parking_bays    String[]
+  status          PropertyStatus @default(ONBOARDING)
+  cover_photo_url String?
+  uplisting_id    String?        @unique
+  uplisting_slug  String?
+  uplisting_raw   Json?
+  airbnb_listing_url      String?
+  booking_com_listing_url String?
+  last_synced_at  DateTime?
+  sync_enabled    Boolean        @default(true)
+  right_stay_commission_percent Decimal? @db.Decimal(5, 2)
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+
+  owner         Owner?
+  bookings      Booking[]
+  statements    Statement[]
+  receipts      Receipt[]
+  photos        Photo[]
+  contracts     Contract[]
+  info_guide    InfoGuide?
+}
+
+model Owner {
+  id             String    @id @default(uuid())
+  property_id   String    @unique
+  property      Property  @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  full_name     String
+  phone         String
+  email         String
+  id_number     String?
+  bank_name     String?
+  account_number String?
+  branch_code   String?
+  notes         String?
+  portal_user_id String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  property_id String
+  property    Property      @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  guest_name  String
+  guest_email String?
+  guest_phone String?
+  check_in    DateTime
+  check_out   DateTime
+  num_guests  Int           @default(1)
+  source      BookingSource @default(DIRECT)
+  reference   String?
+  nightly_rate Decimal      @db.Decimal(10, 2)
+  total       Decimal       @db.Decimal(10, 2)
+  status      BookingStatus @default(CONFIRMED)
+  notes       String?
+  uplisting_id String?      @unique
+  uplisting_raw Json?
+  last_synced_at       DateTime?
+  confirmation_code    String?
+  channel_name         String?
+  accommodation_total    Decimal?  @db.Decimal(10, 2)
+  cleaning_fee           Decimal?  @db.Decimal(10, 2)
+  discount               Decimal?  @db.Decimal(10, 2)
+  extra_guest_charge     Decimal?  @db.Decimal(10, 2)
+  extra_charges          Decimal?  @db.Decimal(10, 2)
+  upsells                Decimal?  @db.Decimal(10, 2)
+  booking_taxes          Decimal?  @db.Decimal(10, 2)
+  commission             Decimal?  @db.Decimal(10, 2)
+  commission_tax         Decimal?  @db.Decimal(10, 2)
+  total_management_fee   Decimal?  @db.Decimal(10, 2)
+  payment_processing_fee Decimal?  @db.Decimal(10, 2)
+  gross_revenue          Decimal?  @db.Decimal(10, 2)
+  net_revenue            Decimal?  @db.Decimal(10, 2)
+  total_payout           Decimal?  @db.Decimal(10, 2)
+  csv_imported_at      DateTime?
+  csv_row_hash         String?
+  owner_statement_id   String?
+  owner_statement      Statement? @relation(fields: [owner_statement_id], references: [id], onDelete: SetNull)
+  created_at  DateTime      @default(now())
+  updated_at  DateTime      @updatedAt
+
+  @@unique([confirmation_code])
+  @@index([owner_statement_id])
+}
+
+model CsvImportLog {
+  id               String   @id @default(uuid())
+  filename         String
+  total_rows       Int
+  new_records      Int      @default(0)
+  updated_records  Int      @default(0)
+  skipped_records  Int      @default(0)
+  error_records    Int      @default(0)
+  errors           Json     @default("[]")
+  property_summary Json     @default("{}")
+  imported_by      String?
+  created_at       DateTime @default(now())
+}
+
+model Statement {
+  id          String   @id @default(uuid())
+  property_id String
+  property    Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  month       Int
+  year        Int
+  file_url    String?
+  file_name   String?
+  notes       String?
+  source      StatementSource   @default(UPLOADED)
+  status      StatementStatus?
+  snapshot    Json?
+  created_at  DateTime @default(now())
+  bookings    Booking[]
+}
+
+model Receipt {
+  id          String          @id @default(uuid())
+  property_id String
+  property    Property        @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  date        DateTime
+  supplier    String
+  amount      Decimal         @db.Decimal(10, 2)
+  category    ReceiptCategory @default(OTHER)
+  file_url    String?
+  file_name   String?
+  notes       String?
+  created_at  DateTime        @default(now())
+}
+
+model Photo {
+  id          String   @id @default(uuid())
+  property_id String
+  property    Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  url         String
+  is_cover    Boolean  @default(false)
+  caption     String?
+  created_at  DateTime @default(now())
+}
+
+model Contract {
+  id              String   @id @default(uuid())
+  property_id     String
+  property        Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  file_url        String
+  file_name       String
+  start_date      DateTime
+  end_date        DateTime?
+  commission_rate String
+  version         Int      @default(1)
+  is_current      Boolean  @default(false)
+  created_at      DateTime @default(now())
+
+  @@index([property_id, created_at(sort: Desc)])
+  @@index([property_id, is_current])
+}
+
+model InfoGuide {
+  id                   String   @id @default(uuid())
+  property_id          String   @unique
+  property             Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  wifi_name            String?
+  wifi_password        String?
+  parking_instructions String?
+  access_code          String?
+  lockbox_code         String?
+  electricity_notes    String?
+  emergency_contacts   Json     @default("[]")
+  notes                String?
+  updated_at           DateTime @updatedAt
+}
+
+model UplistingPropertyCache {
+  id               String   @id @default(uuid())
+  uplisting_id     String   @unique
+  name             String?
+  nickname         String?
+  property_type    String?
+  maximum_capacity Int?
+  bedrooms_count   Int?
+  bathrooms_count  Int?
+  description      String?
+  check_in_time    Int?
+  check_out_time   Int?
+  property_slug    String?
+  currency         String?
+  time_zone        String?
+  raw_payload      Json
+  synced_at        DateTime @default(now())
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+}
+
+model UplistingBookingCache {
+  id                   String   @id @default(uuid())
+  uplisting_id         String   @unique
+  uplisting_property_id String?
+  check_in             DateTime?
+  check_out            DateTime?
+  guest_name           String?
+  guest_email          String?
+  guest_phone          String?
+  source               String?
+  status               String?
+  total_price          String?
+  currency             String?
+  raw_payload          Json
+  synced_at            DateTime @default(now())
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([uplisting_property_id])
+  @@index([check_in, check_out])
+}
+
+model UplistingSyncLog {
+  id             String   @id @default(uuid())
+  sync_type      String
+  status         String
+  records_synced Int      @default(0)
+  error_message  String?
+  started_at     DateTime @default(now())
+  completed_at   DateTime?
+}
