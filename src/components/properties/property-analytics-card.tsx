@@ -198,70 +198,70 @@ export function PropertyAnalyticsCard({ bookings }: PropertyAnalyticsCardProps) 
             </p>
           ) : (
             <div className="rounded-lg border border-slate-200/80 bg-white shadow-sm">
-              <Table className="min-w-[960px] table-fixed">
+              <Table className="min-w-[1280px] table-fixed text-[13px]">
                 <TableHeader>
                   <TableRow className="border-slate-200 hover:bg-transparent">
-                    <TableHead className="w-[min(14rem,28vw)] min-w-[10rem] whitespace-normal text-xs font-semibold align-bottom">
+                    <TableHead className="w-[220px] min-w-[180px] whitespace-normal px-3 py-2 text-[11px] font-semibold tracking-wide align-bottom">
                       Guest
                     </TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold">Check-in</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold">Check-out</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold text-right">Nights</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold">Channel</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold">Status</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold">Confirmation</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold text-right">Gross</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold text-right">Net</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold text-right">Payout</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold text-right">Commission</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold text-right">Mgmt fee</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold text-right">Cleaning</TableHead>
-                    <TableHead className="whitespace-nowrap text-xs font-semibold">CSV imported</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide">Check-in</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide">Check-out</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide text-right">Nights</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide">Channel</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide">Status</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide">Confirmation</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide text-right">Gross</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide text-right">Net</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide text-right">Payout</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide text-right">Commission</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide text-right">Mgmt fee</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide text-right">Cleaning</TableHead>
+                    <TableHead className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold tracking-wide">CSV imported</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((row) => (
-                    <TableRow key={row.id} className="border-slate-100">
-                      <TableCell className="whitespace-normal break-words align-top text-xs font-medium text-slate-900">
+                    <TableRow key={row.id} className="border-slate-100 odd:bg-white even:bg-slate-50/40">
+                      <TableCell className="whitespace-normal break-words px-3 py-2 align-top text-[13px] font-medium leading-5 text-slate-900">
                         {row.guest_name}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs tabular-nums text-slate-700">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] tabular-nums text-slate-700">
                         {formatShortDate(row.check_in)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs tabular-nums text-slate-700">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] tabular-nums text-slate-700">
                         {formatShortDate(row.check_out)}
                       </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-slate-700">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-700">
                         {nightsBetween(row.check_in, row.check_out)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs text-slate-700">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] text-slate-700">
                         {formatChannelLabel(row.channel_name, row.source)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs text-slate-700">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] text-slate-700">
                         {STATUS_LABEL[row.status]}
                       </TableCell>
-                      <TableCell className="max-w-[100px] truncate font-mono text-[0.65rem] text-slate-600">
+                      <TableCell className="max-w-[130px] truncate px-3 py-2 font-mono text-[11px] tracking-tight text-slate-600">
                         {row.confirmation_code ?? "—"}
                       </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
                         {formatMoneyFromString(row.gross_revenue)}
                       </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
                         {formatMoneyFromString(row.net_revenue)}
                       </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
                         {formatMoneyFromString(row.total_payout ?? row.total)}
                       </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
                         {formatMoneyFromString(row.commission)}
                       </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
                         {formatMoneyFromString(row.total_management_fee)}
                       </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
                         {formatMoneyFromString(row.cleaning_fee)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-[0.65rem] tabular-nums text-slate-600">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-slate-600">
                         {csvImportedLabel(row.csv_imported_at)}
                       </TableCell>
                     </TableRow>

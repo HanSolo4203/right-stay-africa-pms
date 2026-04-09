@@ -8,9 +8,6 @@ const nextConfig = {
     "@radix-ui/react-label",
     "@radix-ui/react-slot",
   ],
-  experimental: {
-    optimizePackageImports: ["lucide-react", "recharts"],
-  },
 }
 
 export default nextConfig
