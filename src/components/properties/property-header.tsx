@@ -3,6 +3,7 @@ import { PropertyStatus } from "@prisma/client"
 import { Building2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { PropertyRemoteImage } from "@/components/properties/property-remote-image"
 import { PropertyUplistingSyncButton } from "@/components/properties/property-uplisting-sync-button"
 import { cn } from "@/lib/utils"
 
@@ -69,11 +70,11 @@ export function PropertyHeader({ property, uplistingId, galleryUrls = [] }: Prop
           )}
         >
           {heroUrl ? (
-            /* eslint-disable-next-line @next/next/no-img-element -- remote property URLs (Supabase / Uplisting) */
-            <img
+            <PropertyRemoteImage
               src={heroUrl}
               alt={`${property.name} — main photo`}
               className="absolute inset-0 h-full w-full object-cover"
+              fallbackIconClassName="size-10"
             />
           ) : (
             <div
@@ -97,12 +98,11 @@ export function PropertyHeader({ property, uplistingId, galleryUrls = [] }: Prop
                 href={photosTabHref}
                 className="group relative aspect-[4/3] overflow-hidden rounded-lg bg-slate-200 ring-1 ring-slate-200/80 transition ring-inset hover:ring-green-600/40"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <PropertyRemoteImage
                   src={url}
                   alt=""
                   className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]"
-                  loading="lazy"
+                  fallbackIconClassName="size-6"
                 />
               </Link>
             ))}

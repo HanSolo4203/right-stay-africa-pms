@@ -24,7 +24,8 @@ const ACTIVE = new Set<BookingStatus>([
 const ownerStatementLineSchema = z.object({
   id: z.string().min(1),
   description: z.string(),
-  amount: z.number(),
+  quantity: z.number(),
+  unitPrice: z.number(),
   addTenPercent: z.boolean(),
 })
 

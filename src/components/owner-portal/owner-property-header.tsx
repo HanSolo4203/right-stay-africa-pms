@@ -1,4 +1,5 @@
 import { Building2 } from "lucide-react"
+import { PropertyRemoteImage } from "@/components/properties/property-remote-image"
 
 type OwnerPropertyHeaderProps = {
   property: {
@@ -14,9 +15,11 @@ export function OwnerPropertyHeader({ property }: OwnerPropertyHeaderProps) {
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="h-48 w-full bg-slate-200 sm:h-[220px]">
         {property.cover_photo_url ? (
-          <div
-            className="h-full w-full bg-cover bg-center"
-            style={{ backgroundImage: `url("${property.cover_photo_url}")` }}
+          <PropertyRemoteImage
+            src={property.cover_photo_url}
+            alt={property.name}
+            className="h-full w-full object-cover"
+            fallbackIconClassName="size-10"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-slate-500">

@@ -12,6 +12,7 @@ import { OwnerStatementsList } from "@/components/financials/owner-statements-li
 import { StatementsList } from "@/components/financials/statements-list"
 import { OwnerTab } from "@/components/owners/owner-tab"
 import { ContractTab } from "@/components/contracts/contract-tab"
+import { PropertyRemoteImage } from "@/components/properties/property-remote-image"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type ReceiptCategoryValue } from "@/lib/types/receipt"
@@ -245,12 +246,10 @@ function PropertyTabsInner({
                     <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                       {overview.photos.map((photo) => (
                         <li key={photo.id} className="overflow-hidden rounded-lg border border-slate-200">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
+                          <PropertyRemoteImage
                             src={photo.url}
                             alt={photo.caption ?? "Property photo"}
                             className="aspect-[4/3] w-full object-cover"
-                            loading="lazy"
                           />
                           {photo.caption ? (
                             <p className="truncate px-2 py-1 text-xs text-slate-600">{photo.caption}</p>

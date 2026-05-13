@@ -16,20 +16,46 @@ export function lineCharge(amount: number, addTenPercent: boolean): number {
   return addTenPercent ? roundMoney(base * 1.1) : base
 }
 
+type ManualLineSnapshotInput = Partial<OwnerStatementManualLineV1> & {
+  id: string
+  /** Legacy snapshots / payloads used a single amount (implicit qty 1). */
+  amount?: number
+}
+
+/**
+ * Normalise a manual line from the client or an older persisted snapshot
+ * (`amount` only) into quantity × unit price.
+ */
+export function coerceOwnerStatementManualLine(raw: ManualLineSnapshotInput): OwnerStatementManualLineV1 {
+  const description = typeof raw.description === "string" ? raw.description : ""
+  const addTenPercent = Boolean(raw.addTenPercent)
+  const q = raw.quantity
+  const u = raw.unitPrice
+  if (typeof q === "number" && Number.isFinite(q) && typeof u === "number" && Number.isFinite(u)) {
+    return { id: raw.id, description, quantity: q, unitPrice: u, addTenPercent }
+  }
+  const legacy = typeof raw.amount === "number" && Number.isFinite(raw.amount) ? raw.amount : 0
+  return { id: raw.id, description, quantity: 1, unitPrice: legacy, addTenPercent }
+}
+
 export function computeExpenses(
-  manual: OwnerStatementManualLineV1[],
+  manual: ManualLineSnapshotInput[],
   receipts: OwnerStatementReceiptLineV1[]
 ): { lines: OwnerStatementExpenseComputed[]; otherExpenses: number } {
   const lines: OwnerStatementExpenseComputed[] = []
 
-  for (const m of manual) {
-    const charged = lineCharge(m.amount, m.addTenPercent)
+  for (const raw of manual) {
+    const m = coerceOwnerStatementManualLine(raw)
+    const base = roundMoney(m.quantity * m.unitPrice)
+    const charged = lineCharge(base, m.addTenPercent)
     lines.push({
       key: `m:${m.id}`,
       label: m.description.trim() || "Expense",
-      baseAmount: roundMoney(m.amount),
+      baseAmount: base,
       addTenPercent: m.addTenPercent,
       chargedAmount: charged,
+      quantity: m.quantity,
+      unitPrice: m.unitPrice,
     })
   }
 
@@ -41,6 +67,8 @@ export function computeExpenses(
       baseAmount: roundMoney(r.amount),
       addTenPercent: r.addTenPercent,
       chargedAmount: charged,
+      quantity: null,
+      unitPrice: null,
     })
   }
 
@@ -116,7 +144,7 @@ export function buildSnapshotV1(input: {
     commissionPercentOverride: input.commissionPercentOverride,
     bookingIds: input.bookings.map((b) => b.id),
     bookings: input.bookings,
-    manualLines: input.manualLines,
+    manualLines: input.manualLines.map(coerceOwnerStatementManualLine),
     receiptLines: input.receiptLines,
     totals,
   }

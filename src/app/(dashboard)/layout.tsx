@@ -15,10 +15,14 @@ export default async function DashboardGroupLayout({ children }: DashboardGroupL
   }
 
   return (
-    <div className="flex min-h-screen bg-[#F9FAFB]">
+    <div className="flex min-h-screen bg-slate-100/80">
       <Sidebar email={user.email} role={user.role} />
-      <div className="flex min-h-screen flex-1 flex-col">
-        <main className="flex-1 p-6">{children}</main>
+      <div className="relative flex min-h-screen flex-1 flex-col">
+        <div
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(16,185,129,0.12),transparent)]"
+          aria-hidden
+        />
+        <main className="relative flex-1 p-6 sm:p-8">{children}</main>
       </div>
       <Toaster />
     </div>

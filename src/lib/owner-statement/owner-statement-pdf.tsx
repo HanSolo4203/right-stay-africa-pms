@@ -1,9 +1,22 @@
 import "server-only"
 
-import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
+import fs from "node:fs"
+import path from "node:path"
+
+import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
 import type { OwnerStatementSnapshotBookingV1, OwnerStatementSnapshotV1 } from "./types"
 import { computeExpenses } from "./compute"
 import { formatMoneyZar, formatShortDate, formatStatementPeriod } from "./format-money"
+
+let statementLogoDataUri: string | null = null
+
+function getStatementLogoDataUri(): string {
+  if (statementLogoDataUri) return statementLogoDataUri
+  const filePath = path.join(process.cwd(), "public", "RSA NEW BLK BG.png")
+  const buf = fs.readFileSync(filePath)
+  statementLogoDataUri = `data:image/png;base64,${buf.toString("base64")}`
+  return statementLogoDataUri
+}
 
 /** Normalise booking to full shape (backwards compat for old snapshots). */
 function normaliseBooking(b: Partial<OwnerStatementSnapshotBookingV1>): OwnerStatementSnapshotBookingV1 {
@@ -46,11 +59,15 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica",
     color: "#1e293b",
   },
-  brand: {
-    fontSize: 11,
-    fontFamily: "Helvetica-Bold",
-    color: "#0f766e",
-    marginBottom: 2,
+  logoWrap: {
+    marginBottom: 10,
+    alignItems: "flex-start",
+  },
+  logo: {
+    width: 168,
+    height: 48,
+    objectFit: "contain",
+    objectPosition: "left",
   },
   title: {
     fontSize: 18,
@@ -147,7 +164,9 @@ export function OwnerStatementPdfDocument({
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        <Text style={styles.brand}>Right Stay Africa</Text>
+        <View style={styles.logoWrap}>
+          <Image src={getStatementLogoDataUri()} style={styles.logo} />
+        </View>
         <Text style={styles.title}>Owner statement</Text>
         <Text style={styles.subtitle}>{period}</Text>
 
@@ -274,17 +293,27 @@ export function OwnerStatementPdfDocument({
           <>
             <Text style={styles.sectionLabel}>Expense detail</Text>
             <View style={styles.rowHeader}>
-              <Text style={{ width: "55%", fontFamily: "Helvetica-Bold" }}>Description</Text>
-              <Text style={{ width: "15%", fontFamily: "Helvetica-Bold" }}>Base</Text>
-              <Text style={{ width: "15%", fontFamily: "Helvetica-Bold" }}>+10%</Text>
-              <Text style={{ width: "15%", textAlign: "right", fontFamily: "Helvetica-Bold" }}>Charged</Text>
+              <Text style={{ width: "34%", fontFamily: "Helvetica-Bold" }}>Description</Text>
+              <Text style={{ width: "10%", fontFamily: "Helvetica-Bold" }}>Qty</Text>
+              <Text style={{ width: "16%", fontFamily: "Helvetica-Bold" }}>Unit price</Text>
+              <Text style={{ width: "14%", fontFamily: "Helvetica-Bold" }}>Base</Text>
+              <Text style={{ width: "10%", fontFamily: "Helvetica-Bold" }}>+10%</Text>
+              <Text style={{ width: "16%", textAlign: "right", fontFamily: "Helvetica-Bold" }}>Charged</Text>
             </View>
             {expenseLines.map((line) => (
               <View key={line.key} style={styles.row} wrap={false}>
-                <Text style={{ width: "55%" }}>{line.label}</Text>
-                <Text style={{ width: "15%" }}>{formatMoneyZar(line.baseAmount)}</Text>
-                <Text style={{ width: "15%" }}>{line.addTenPercent ? "Yes" : "—"}</Text>
-                <Text style={{ width: "15%", textAlign: "right" }}>{formatMoneyZar(line.chargedAmount)}</Text>
+                <Text style={{ width: "34%" }}>{line.label}</Text>
+                <Text style={{ width: "10%" }}>
+                  {line.quantity != null
+                    ? new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 4 }).format(line.quantity)
+                    : "—"}
+                </Text>
+                <Text style={{ width: "16%" }}>
+                  {line.unitPrice != null ? formatMoneyZar(line.unitPrice) : "—"}
+                </Text>
+                <Text style={{ width: "14%" }}>{formatMoneyZar(line.baseAmount)}</Text>
+                <Text style={{ width: "10%" }}>{line.addTenPercent ? "Yes" : "—"}</Text>
+                <Text style={{ width: "16%", textAlign: "right" }}>{formatMoneyZar(line.chargedAmount)}</Text>
               </View>
             ))}
           </>

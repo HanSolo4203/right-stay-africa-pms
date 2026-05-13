@@ -5,7 +5,15 @@ import { prisma } from "@/lib/prisma"
 export default async function PropertiesPage() {
   const [properties, user] = await Promise.all([
     prisma.property.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        unit_number: true,
+        status: true,
+        cover_photo_url: true,
+        bedrooms: true,
+        bathrooms: true,
         owner: {
           select: {
             full_name: true,

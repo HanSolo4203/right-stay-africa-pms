@@ -37,17 +37,25 @@ const RELATIONSHIP_KEYS = [
   "attachments",
 ]
 
+function normalizeHttpImageUrl(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const withScheme = trimmed.startsWith("//") ? `https:${trimmed}` : trimmed
+  if (!HTTP_URL.test(withScheme)) return null
+  if (
+    withScheme.toLowerCase().includes("favicon") ||
+    withScheme.toLowerCase().endsWith(".svg")
+  ) {
+    return null
+  }
+  return withScheme
+}
+
 function collectHttpUrls(value: unknown, out: Set<string>, depth: number) {
   if (depth > 8) return
-  if (typeof value === "string" && HTTP_URL.test(value)) {
-    const trimmed = value.trim()
-    if (
-      trimmed &&
-      !trimmed.toLowerCase().includes("favicon") &&
-      !trimmed.toLowerCase().endsWith(".svg")
-    ) {
-      out.add(trimmed)
-    }
+  if (typeof value === "string") {
+    const normalized = normalizeHttpImageUrl(value)
+    if (normalized) out.add(normalized)
     return
   }
   if (Array.isArray(value)) {

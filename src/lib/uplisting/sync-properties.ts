@@ -77,6 +77,24 @@ function isBlank(value: string | null | undefined): boolean {
   return value == null || String(value).trim() === ""
 }
 
+const ABSOLUTE_HTTP_URL = /^https?:\/\//i
+
+/** Trim, resolve `//` to `https://`, drop invalid strings, preserve order, dedupe. */
+function sanitizePhotoUrlList(urls: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of urls) {
+    const t = raw.trim()
+    if (!t) continue
+    const u = t.startsWith("//") ? `https:${t}` : t
+    if (!ABSOLUTE_HTTP_URL.test(u)) continue
+    if (seen.has(u)) continue
+    seen.add(u)
+    out.push(u)
+  }
+  return out
+}
+
 type ExistingForPreserve = {
   id: string
   name: string
@@ -107,6 +125,7 @@ async function upsertOneProperty(
   const mapped = mapUplistingProperty(uplistingProperty)
   const attrs = attrRecord(uplistingProperty)
   const preserve = Boolean(options.preserveManualOnUpdate)
+  const photoUrls = sanitizePhotoUrlList(options.photoUrls ?? [])
 
   const existing = await prisma.property.findUnique({
     where: { uplisting_id: uplistingId },
@@ -151,9 +170,8 @@ async function upsertOneProperty(
     if (mapped.unit_number) baseUpdate.unit_number = mapped.unit_number
     if (mapped.building_name) baseUpdate.building_name = mapped.building_name
 
-    const urls = options.photoUrls ?? []
-    if (urls.length > 0) {
-      baseUpdate.cover_photo_url = urls[0]
+    if (photoUrls.length > 0) {
+      baseUpdate.cover_photo_url = photoUrls[0]
     }
   }
 
@@ -178,9 +196,8 @@ async function upsertOneProperty(
       if (isBlank(row.suburb) && loc.suburb !== undefined) always.suburb = loc.suburb
       if (isBlank(row.unit_number) && mapped.unit_number) always.unit_number = mapped.unit_number
       if (isBlank(row.building_name) && mapped.building_name) always.building_name = mapped.building_name
-      const urls = options.photoUrls ?? []
-      if (isBlank(row.cover_photo_url) && urls.length > 0) {
-        always.cover_photo_url = urls[0]
+      if (isBlank(row.cover_photo_url) && photoUrls.length > 0) {
+        always.cover_photo_url = photoUrls[0]
       }
     }
     updatePayload = always
@@ -209,9 +226,7 @@ async function upsertOneProperty(
       unit_number: mapped.unit_number,
       building_name: mapped.building_name,
       cover_photo_url:
-        options.mode === "full" && options.photoUrls && options.photoUrls.length > 0
-          ? options.photoUrls[0]
-          : null,
+        options.mode === "full" && photoUrls.length > 0 ? photoUrls[0] : null,
     },
     select: { id: true },
   })
@@ -223,14 +238,14 @@ async function upsertOneProperty(
 
   const shouldImportPhotos =
     options.mode === "full" &&
-    (options.photoUrls?.length ?? 0) > 0 &&
+    photoUrls.length > 0 &&
     (Boolean(options.alwaysSyncPhotos) || existingPhotoCount < 0 || existingPhotoCount === 0)
 
-  if (shouldImportPhotos && options.photoUrls) {
+  if (shouldImportPhotos) {
     await prisma.$transaction([
       prisma.photo.deleteMany({ where: { property_id: property.id } }),
       prisma.photo.createMany({
-        data: options.photoUrls.map((url, index) => ({
+        data: photoUrls.map((url, index) => ({
           property_id: property.id,
           url,
           is_cover: index === 0,

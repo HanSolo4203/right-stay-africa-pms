@@ -6,6 +6,7 @@ import { useState, useTransition } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { AuthBrandLogo } from "@/components/auth/auth-brand-logo"
 import { loginAction } from "./actions"
 
 const loginSchema = z.object({
@@ -47,8 +48,8 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <div className="mb-8 text-center">
-          <p className="text-xl font-bold tracking-tight text-green-700">Right Stay Africa</p>
-          <h1 className="mt-2 text-2xl font-semibold text-slate-900">Sign in</h1>
+          <AuthBrandLogo className="mb-5" />
+          <h1 className="text-2xl font-semibold text-slate-900">Sign in</h1>
           <p className="mt-1 text-sm text-slate-500">Use your account to access the portal.</p>
         </div>
 

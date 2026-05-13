@@ -43,7 +43,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { toast } from "@/components/ui/toast"
-import { buildSnapshotV1 } from "@/lib/owner-statement/compute"
+import { buildSnapshotV1, coerceOwnerStatementManualLine, computeExpenses } from "@/lib/owner-statement/compute"
 import { formatMoneyZar } from "@/lib/owner-statement/format-money"
 import {
   checkInAllowedOnOwnerStatement,
@@ -167,7 +167,11 @@ export function GenerateOwnerStatementModal({
       setMonth(String(snap.month))
       setYear(String(snap.year))
       setSelectedIds(new Set(snap.bookingIds))
-      setManualLines(snap.manualLines.length > 0 ? snap.manualLines : [])
+      setManualLines(
+        snap.manualLines.length > 0
+          ? snap.manualLines.map((row) => coerceOwnerStatementManualLine(row))
+          : []
+      )
       setDraftStatementId(statementId)
       const rSel: Record<string, boolean> = {}
       const rIds = new Set<string>()
@@ -381,7 +385,7 @@ export function GenerateOwnerStatementModal({
   const addManualLine = () => {
     setManualLines((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), description: "", amount: 0, addTenPercent: false },
+      { id: crypto.randomUUID(), description: "", quantity: 1, unitPrice: 0, addTenPercent: false },
     ])
   }
 
@@ -530,6 +534,14 @@ export function GenerateOwnerStatementModal({
     const total = selectedCleaningRows.reduce((s, r) => s + r.cleaning_fee, 0)
     return { n, nonZero, zero, total }
   }, [selectedCleaningRows])
+
+  const previewExpenseLines = useMemo(
+    () => computeExpenses(snapshotPreview.manualLines, snapshotPreview.receiptLines).lines,
+    [snapshotPreview.manualLines, snapshotPreview.receiptLines]
+  )
+
+  const formatQty = (q: number | null) =>
+    q == null ? "—" : new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 4 }).format(q)
 
   return (
     <>
@@ -882,15 +894,34 @@ export function GenerateOwnerStatementModal({
                             placeholder="Description"
                           />
                         </div>
-                        <div className="w-28 space-y-1">
-                          <Label className="text-xs">Amount (ZAR)</Label>
+                        <div className="w-24 space-y-1">
+                          <Label className="text-xs">Quantity</Label>
                           <Input
                             type="number"
+                            min={0}
                             step={0.01}
-                            value={line.amount || ""}
-                            onChange={(e) =>
-                              updateManualLine(line.id, { amount: Number(e.target.value) || 0 })
-                            }
+                            value={line.quantity}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              updateManualLine(line.id, {
+                                quantity: v === "" ? 0 : Number(v) || 0,
+                              })
+                            }}
+                          />
+                        </div>
+                        <div className="w-28 space-y-1">
+                          <Label className="text-xs">Unit price (ZAR)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={line.unitPrice === 0 ? "" : line.unitPrice}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              updateManualLine(line.id, {
+                                unitPrice: v === "" ? 0 : Number(v) || 0,
+                              })
+                            }}
                           />
                         </div>
                         <label className="flex items-center gap-2 text-xs">
@@ -948,6 +979,44 @@ export function GenerateOwnerStatementModal({
                     <dt className="text-muted-foreground">Other expenses</dt>
                     <dd className="font-medium tabular-nums">−{formatMoneyZar(snapshotPreview.totals.otherExpenses)}</dd>
                   </div>
+                  {previewExpenseLines.length > 0 ? (
+                    <div className="sm:col-span-2 mt-2 overflow-x-auto rounded-md border border-slate-200 bg-white">
+                      <Table className="min-w-[520px] text-sm">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Description</TableHead>
+                            <TableHead className="text-right">Qty</TableHead>
+                            <TableHead className="text-right">Unit price</TableHead>
+                            <TableHead className="text-right">Base</TableHead>
+                            <TableHead className="text-center">+10%</TableHead>
+                            <TableHead className="text-right">Charged</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {previewExpenseLines.map((row) => (
+                            <TableRow key={row.key}>
+                              <TableCell className="max-w-[220px] font-medium break-words">{row.label}</TableCell>
+                              <TableCell className="whitespace-nowrap text-right tabular-nums">
+                                {formatQty(row.quantity)}
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap text-right tabular-nums">
+                                {row.unitPrice != null ? formatMoneyZar(row.unitPrice) : "—"}
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap text-right tabular-nums">
+                                {formatMoneyZar(row.baseAmount)}
+                              </TableCell>
+                              <TableCell className="text-center text-muted-foreground">
+                                {row.addTenPercent ? "Yes" : "—"}
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap text-right tabular-nums font-medium">
+                                {formatMoneyZar(row.chargedAmount)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : null}
                   <div className="sm:col-span-2 flex justify-between gap-2 border-t border-slate-200 pt-2 text-base font-semibold">
                     <dt>Net to owner</dt>
                     <dd className="tabular-nums">{formatMoneyZar(snapshotPreview.totals.netToOwner)}</dd>

@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { PropertyStatus } from "@prisma/client"
 import { Bath, BedSingle, Building2 } from "lucide-react"
+import { PropertyRemoteImage } from "@/components/properties/property-remote-image"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 
@@ -53,9 +54,10 @@ export function PropertyCard({ property }: PropertyCardProps) {
       <Card className="h-full overflow-hidden pt-0 transition-shadow hover:shadow-md">
         <div className="h-[200px] w-full overflow-hidden bg-slate-200">
           {property.cover_photo_url ? (
-            <div
-              className="h-full w-full bg-cover bg-center"
-              style={{ backgroundImage: `url("${property.cover_photo_url}")` }}
+            <PropertyRemoteImage
+              src={property.cover_photo_url}
+              alt={property.name}
+              className="h-full w-full object-cover"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-slate-500">

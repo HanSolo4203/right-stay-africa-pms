@@ -37,7 +37,8 @@ export type OwnerStatementSnapshotBookingV1 = {
 export type OwnerStatementManualLineV1 = {
   id: string
   description: string
-  amount: number
+  quantity: number
+  unitPrice: number
   addTenPercent: boolean
 }
 
@@ -62,6 +63,9 @@ export type OwnerStatementExpenseComputed = {
   baseAmount: number
   addTenPercent: boolean
   chargedAmount: number
+  /** Manual lines only; receipts use null. */
+  quantity: number | null
+  unitPrice: number | null
 }
 
 export function isOwnerStatementSnapshotV1(value: unknown): value is OwnerStatementSnapshotV1 {
