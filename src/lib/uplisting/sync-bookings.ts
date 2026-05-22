@@ -35,6 +35,7 @@ export function mapUplistingBooking(
   return {
     property_id: propertyDbId,
     guest_name: attrs.guest_name ?? "Guest",
+    guest_email: attrs.guest_email ?? null,
     check_in: new Date(attrs.check_in),
     check_out: new Date(attrs.check_out),
     num_guests: attrs.adults ?? 1,
@@ -42,6 +43,7 @@ export function mapUplistingBooking(
     status: mapStatus(attrs.status),
     total: attrs.total_price ?? 0,
     nightly_rate: 0,
+    channel_name: attrs.source ?? null,
     uplisting_id: uplistingBooking.id,
     uplisting_raw: attrs as unknown as Prisma.InputJsonValue,
     last_synced_at: new Date(),
@@ -119,9 +121,31 @@ async function finalizeSyncLog(
   })
 }
 
-async function upsertOneBooking(uplistingBooking: UplistingBooking): Promise<
-  "created" | "updated" | "skipped"
-> {
+export async function upsertBookingFromUplistingResource(
+  uplistingBooking: UplistingBooking,
+  rawPayload?: Prisma.InputJsonValue
+): Promise<"created" | "updated" | "skipped"> {
+  return upsertOneBooking(uplistingBooking, rawPayload)
+}
+
+export async function upsertBookingFromCacheRecord(cache: {
+  uplisting_id: string
+  uplisting_property_id: string | null
+  check_in: Date | null
+  check_out: Date | null
+  guest_name: string | null
+  source: string | null
+  status: string | null
+  total_price: string | null
+  raw_payload: Prisma.JsonValue
+}): Promise<"created" | "updated" | "skipped"> {
+  return upsertOneCachedBooking(cache)
+}
+
+async function upsertOneBooking(
+  uplistingBooking: UplistingBooking,
+  rawPayload?: Prisma.InputJsonValue
+): Promise<"created" | "updated" | "skipped"> {
   const uplistingPropertyId = String(uplistingBooking.attributes.property_id ?? "")
   if (!uplistingPropertyId) {
     console.warn(
@@ -143,6 +167,9 @@ async function upsertOneBooking(uplistingBooking: UplistingBooking): Promise<
   }
 
   const mapped = mapUplistingBooking(uplistingBooking, property.id)
+  if (rawPayload) {
+    mapped.uplisting_raw = rawPayload
+  }
   const existing = await prisma.booking.findUnique({
     where: { uplisting_id: uplistingBooking.id },
     select: { id: true },
@@ -154,12 +181,14 @@ async function upsertOneBooking(uplistingBooking: UplistingBooking): Promise<
       // Keep manually editable fields untouched on sync updates.
       property_id: mapped.property_id,
       guest_name: mapped.guest_name,
+      guest_email: mapped.guest_email ?? undefined,
       check_in: mapped.check_in,
       check_out: mapped.check_out,
       num_guests: mapped.num_guests,
       source: mapped.source,
       status: mapped.status,
       total: mapped.total,
+      channel_name: mapped.channel_name ?? undefined,
       uplisting_raw: mapped.uplisting_raw,
       last_synced_at: mapped.last_synced_at,
     },
@@ -293,24 +322,24 @@ async function syncBookingsForPropertyRange(
     let bookingsToProcess: UplistingBooking[] | null = null
 
     try {
-      bookingsToProcess = await fetchAllBookings()
+      bookingsToProcess = await fetchBookingsForProperty(uplistingPropertyId)
     } catch (error) {
       if (!isUplistingBookingsEndpointMissing(error)) throw error
     }
 
-    if (!bookingsToProcess) {
+    if (!bookingsToProcess?.length) {
       try {
-        bookingsToProcess = await fetchBookingsForProperty(uplistingPropertyId)
+        const all = await fetchAllBookings()
+        bookingsToProcess = all.filter(
+          (booking) => String(booking.attributes.property_id ?? "") === uplistingPropertyId
+        )
       } catch (error) {
         if (!isUplistingBookingsEndpointMissing(error)) throw error
       }
     }
 
-    if (bookingsToProcess) {
-      const filtered = bookingsToProcess.filter(
-        (booking) => String(booking.attributes.property_id ?? "") === uplistingPropertyId
-      )
-      for (const booking of filtered) {
+    if (bookingsToProcess && bookingsToProcess.length > 0) {
+      for (const booking of bookingsToProcess) {
         try {
           const outcome = await upsertOneBooking(booking)
           if (outcome === "created") created += 1

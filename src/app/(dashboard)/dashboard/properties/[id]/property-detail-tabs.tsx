@@ -14,7 +14,14 @@ export async function PropertyDetailTabs({
   const [property, user] = await Promise.all([
     prisma.property.findUnique({
       where: { id: propertyId },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        airbnb_listing_url: true,
+        booking_com_listing_url: true,
+        right_stay_commission_percent: true,
+        uplisting_id: true,
         owner: {
           select: {
             full_name: true,
@@ -222,6 +229,7 @@ export async function PropertyDetailTabs({
           ? Number(property.right_stay_commission_percent)
           : null
       }
+      uplistingLinked={Boolean(property.uplisting_id?.trim())}
     />
   )
 }

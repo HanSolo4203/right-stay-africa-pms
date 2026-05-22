@@ -134,8 +134,7 @@ function formatMoney(amount: number) {
 }
 
 export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps) {
-  const initialMonth = bookings.length > 0 ? new Date(bookings[0]?.check_in ?? Date.now()) : new Date()
-  const [monthDate, setMonthDate] = useState(startOfMonth(initialMonth))
+  const [monthDate, setMonthDate] = useState(() => startOfMonth(new Date()))
   const [selectedBooking, setSelectedBooking] = useState<BookingListRow | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 

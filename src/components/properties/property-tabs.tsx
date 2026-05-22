@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import type { BookingListRow } from "@/components/bookings/booking-list"
 import { BookingsTab } from "@/components/properties/bookings-tab"
+import { LiveBookingsTab } from "@/components/properties/live-bookings-tab"
 import { ListingLinkPreview } from "@/components/properties/listing-link-preview"
 import { PropertyAnalyticsCard } from "@/components/properties/property-analytics-card"
 import { ReceiptsList } from "@/components/financials/receipts-list"
@@ -22,6 +23,7 @@ const tabItems = [
   { value: "owner", label: "Owner" },
   { value: "financials", label: "Financials" },
   { value: "bookings", label: "Bookings" },
+  { value: "live-bookings", label: "Live Bookings" },
   { value: "info-guide", label: "Info Guide" },
   { value: "contract", label: "Contract" },
   { value: "photos", label: "Photos" },
@@ -95,6 +97,7 @@ type PropertyTabsProps = {
     photos: Array<{ id: string; url: string; caption: string | null }>
   }
   bookings: BookingListRow[]
+  uplistingLinked: boolean
 }
 
 export function isValidPropertyTab(tab: string | undefined): tab is TabValue {
@@ -123,6 +126,7 @@ function PropertyTabsInner({
   contracts,
   overview,
   bookings,
+  uplistingLinked,
 }: PropertyTabsProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -263,6 +267,8 @@ function PropertyTabsInner({
             </Card>
           ) : tab.value === "bookings" ? (
             <BookingsTab propertyId={propertyId} userRole={userRole} bookings={bookings} />
+          ) : tab.value === "live-bookings" ? (
+            <LiveBookingsTab propertyId={propertyId} uplistingLinked={uplistingLinked} />
           ) : (
             <Card className="bg-white">
               <CardContent className="p-6 text-slate-500">Coming soon</CardContent>
