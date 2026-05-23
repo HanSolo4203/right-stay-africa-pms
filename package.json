@@ -2,11 +2,14 @@
   "name": "right-stay-africa",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.19 <26"
+  },
   "scripts": {
     "postinstall": "prisma generate",
     "predev": "prisma generate",
     "dev": "next dev",
-    "dev:clean": "rm -rf .next && npm run dev",
+    "dev:clean": "sh -c 'lsof -ti:3000,3001 | xargs kill -9 2>/dev/null || true; rm -rf .next' && npm run dev",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint"

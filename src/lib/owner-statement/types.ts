@@ -1,7 +1,9 @@
 /** Persisted on Statement.snapshot for GENERATED rows (draft + final). */
 export type OwnerStatementSnapshotV1 = {
   version: 1
-  formula: "payout_minus_commission_minus_cleaning_minus_expenses"
+  formula:
+    | "payout_minus_commission_minus_cleaning_minus_expenses"
+    | "revenue_minus_fees_minus_management_minus_expenses"
   month: number
   year: number
   commissionPercentEffective: number
@@ -22,6 +24,8 @@ export type OwnerStatementSnapshotBookingV1 = {
   num_nights: number
   channel_label: string
   accommodation_total: number
+  /** CSV gross_revenue when present; used for payout totals (discounts already netted). */
+  gross_revenue?: number
   discount: number
   extra_guest_charge: number
   cleaning_fee: number
@@ -50,9 +54,15 @@ export type OwnerStatementReceiptLineV1 = {
 }
 
 export type OwnerStatementTotalsV1 = {
+  totalGross: number
+  totalDiscount?: number
+  totalBookingFees?: number
   totalPayout: number
   rsaCommission: number
   totalCleaning: number
+  totalManagementFees: number
+  totalWelcomePack?: number
+  manualExpenses?: number
   otherExpenses: number
   netToOwner: number
 }

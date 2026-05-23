@@ -58,6 +58,15 @@ export const propertySchema = z.object({
     },
     z.number().min(0, "Min 0%").max(100, "Max 100%").optional()
   ),
+  welcome_pack_fee: z.preprocess(
+    (val) => {
+      if (val === "" || val === null || val === undefined) return undefined
+      if (typeof val === "number" && Number.isNaN(val)) return undefined
+      const n = typeof val === "number" ? val : Number(val)
+      return Number.isFinite(n) ? n : undefined
+    },
+    z.number().min(0, "Min R0").optional()
+  ),
 })
 
 export type PropertyFormValues = z.infer<typeof propertySchema>

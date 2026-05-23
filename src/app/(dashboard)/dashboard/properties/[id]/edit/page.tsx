@@ -62,6 +62,8 @@ export default async function EditPropertyPage({ params }: EditPropertyPageProps
               property.right_stay_commission_percent != null
                 ? Number(property.right_stay_commission_percent)
                 : undefined,
+            welcome_pack_fee:
+              property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : undefined,
           }}
         />
       </Suspense>

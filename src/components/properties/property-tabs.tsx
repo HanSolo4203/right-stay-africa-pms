@@ -37,6 +37,7 @@ type PropertyTabsProps = {
   userRole: "SUPER_ADMIN" | "PROPERTY_MANAGER" | "OWNER" | null
   propertyName: string
   propertyCommissionPercent: number | null
+  welcomePackFeePerBooking: number
   statements: Array<{
     id: string
     month: number
@@ -119,6 +120,7 @@ function PropertyTabsInner({
   userRole,
   propertyName,
   propertyCommissionPercent,
+  welcomePackFeePerBooking,
   statements,
   receipts,
   owner,
@@ -190,6 +192,7 @@ function PropertyTabsInner({
                   propertyId={propertyId}
                   propertyName={propertyName}
                   propertyCommissionPercent={propertyCommissionPercent}
+                  welcomePackFeePerBooking={welcomePackFeePerBooking}
                   statements={statements}
                   userRole={userRole}
                   bookings={bookings}
@@ -201,6 +204,7 @@ function PropertyTabsInner({
                   propertyId={propertyId}
                   propertyName={propertyName}
                   propertyCommissionPercent={propertyCommissionPercent}
+                  welcomePackFeePerBooking={welcomePackFeePerBooking}
                   statements={statements}
                   userRole={userRole}
                   bookings={bookings}

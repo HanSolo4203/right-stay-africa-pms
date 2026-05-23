@@ -1,24 +1,140 @@
 import "server-only"
 
-import fs from "node:fs"
-import path from "node:path"
-
+import type { ReactNode } from "react"
 import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
-import type { OwnerStatementSnapshotBookingV1, OwnerStatementSnapshotV1 } from "./types"
+import { differenceInCalendarDays, getDaysInMonth } from "date-fns"
 import { computeExpenses } from "./compute"
-import { formatMoneyZar, formatShortDate, formatStatementPeriod } from "./format-money"
+import {
+  getOwnerStatementPdfFontFamily,
+  pdfFontBold,
+  pdfFontRegular,
+} from "./register-pdf-fonts"
+import type { OwnerStatementExpenseComputed, OwnerStatementSnapshotBookingV1, OwnerStatementSnapshotV1 } from "./types"
 
-let statementLogoDataUri: string | null = null
+const PDF_FAMILY = getOwnerStatementPdfFontFamily()
+const FONT = pdfFontRegular(PDF_FAMILY)
+const FONT_BOLD = pdfFontBold(PDF_FAMILY)
 
-function getStatementLogoDataUri(): string {
-  if (statementLogoDataUri) return statementLogoDataUri
-  const filePath = path.join(process.cwd(), "public", "RSA NEW BLK BG.png")
-  const buf = fs.readFileSync(filePath)
-  statementLogoDataUri = `data:image/png;base64,${buf.toString("base64")}`
-  return statementLogoDataUri
+const C = {
+  ink: "#1a1a1a",
+  headerBg: "#111c15",
+  headerMuted: "#607a68",
+  headerSoft: "#7a9b85",
+  headerLine: "#2a4a35",
+  white: "#ffffff",
+  stripBg: "#f5f7f5",
+  border: "#e0e0e0",
+  borderSoft: "#eeeeee",
+  muted: "#888888",
+  faint: "#aaaaaa",
+  zero: "#bbbbbb",
+  dash: "#cccccc",
+  deduction: "#999999",
+  tableAlt: "#fafafa",
+  totalBg: "#f0f7f2",
+  totalBorder: "#c5dac9",
+  accentGreen: "#2d7a4f",
+  payoutGreen: "#1a5c35",
+  payoutCardBg: "#f2faf5",
+} as const
+
+/** Guest column narrower so numeric columns fit compact amounts on one line. */
+const BOOKING_COL_WIDTHS = [
+  "14%",
+  "8.8%",
+  "8.8%",
+  "7.2%",
+  "8.8%",
+  "7.2%",
+  "8.8%",
+  "9.2%",
+  "8.8%",
+  "8.8%",
+  "9.6%",
+] as const
+
+const EXPENSE_COL_WIDTHS = ["45%", "10%", "15%", "15%", "15%"] as const
+
+import {
+  buildStatementChannelSlices,
+  computeStatementAnalyticsSummary,
+  computeStatementIncomeExpense,
+} from "./owner-statement-pdf-analytics"
+import { OwnerStatementPdfAnalyticsPage } from "./owner-statement-pdf-charts"
+import {
+  STATEMENT_PDF_FOOTER_RESERVE,
+  StatementPdfFooter,
+} from "./statement-pdf-footer"
+import { STATEMENT_PDF_SAFE_INSET } from "./statement-pdf-layout"
+import { chunkStatementBookings } from "./statement-pdf-pagination"
+import { getStatementLogoDataUri } from "./statement-pdf-logo"
+import {
+  formatZAR,
+  formatZARDeduction,
+  formatZARTable,
+  formatZARTableDeduction,
+} from "./owner-statement-pdf-format"
+
+export { formatZAR } from "./owner-statement-pdf-format"
+
+function formatMonthYear(month: number, year: number): string {
+  return new Date(year, month - 1, 1).toLocaleDateString("en-ZA", {
+    month: "long",
+    year: "numeric",
+  })
 }
 
-/** Normalise booking to full shape (backwards compat for old snapshots). */
+function formatPeriodDate(d: Date): string {
+  return `${d.getDate()} ${d.toLocaleDateString("en-ZA", { month: "long" })} ${d.getFullYear()}`
+}
+
+function formatPeriodRange(month: number, year: number): string {
+  const start = new Date(year, month - 1, 1)
+  const end = new Date(year, month, 0)
+  return `${formatPeriodDate(start)} – ${formatPeriodDate(end)}`
+}
+
+function formatStayDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return formatPeriodDate(d)
+}
+
+/** Shorter stay line on page 1 so guest rows stay single-line. */
+function formatStayDateCompact(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })
+}
+
+function bookedNightsInMonth(checkInIso: string, checkOutIso: string, month: number, year: number): number {
+  const firstDay = new Date(year, month - 1, 1)
+  const lastDay = new Date(year, month, 0)
+  const checkIn = new Date(checkInIso)
+  const checkOut = new Date(checkOutIso)
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) return 0
+  const overlapStart = checkIn > firstDay ? checkIn : firstDay
+  const overlapEnd = checkOut < lastDay ? checkOut : lastDay
+  return Math.max(0, differenceInCalendarDays(overlapEnd, overlapStart))
+}
+
+function sumBookings(rows: OwnerStatementSnapshotBookingV1[]) {
+  return rows.reduce(
+    (acc, r) => {
+      acc.channelCommission += r.channel_commission
+      acc.managementFee += r.total_management_fee
+      acc.processingFee += r.payment_processing_fee
+      return acc
+    },
+    { channelCommission: 0, managementFee: 0, processingFee: 0 }
+  )
+}
+
+function expenseServiceFee(line: OwnerStatementExpenseComputed): number | null {
+  if (!line.addTenPercent) return null
+  return Math.round((line.chargedAmount - line.baseAmount) * 100) / 100
+}
+
 function normaliseBooking(b: Partial<OwnerStatementSnapshotBookingV1>): OwnerStatementSnapshotBookingV1 {
   const n = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0)
   const checkIn = (b.check_in as string) ?? ""
@@ -52,85 +168,410 @@ function normaliseBooking(b: Partial<OwnerStatementSnapshotBookingV1>): OwnerSta
 
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 44,
-    paddingBottom: 44,
-    paddingHorizontal: 36,
-    fontSize: 8,
-    fontFamily: "Helvetica",
-    color: "#1e293b",
+    fontFamily: FONT,
+    fontSize: 11,
+    color: C.ink,
+    backgroundColor: C.white,
+    paddingTop: STATEMENT_PDF_SAFE_INSET,
+    paddingLeft: STATEMENT_PDF_SAFE_INSET,
+    paddingRight: STATEMENT_PDF_SAFE_INSET,
+    paddingBottom: STATEMENT_PDF_FOOTER_RESERVE,
   },
-  logoWrap: {
-    marginBottom: 10,
+  bleedBlock: {
+    marginTop: -STATEMENT_PDF_SAFE_INSET,
+    marginLeft: -STATEMENT_PDF_SAFE_INSET,
+    marginRight: -STATEMENT_PDF_SAFE_INSET,
+  },
+  header: {
+    backgroundColor: C.headerBg,
+    paddingVertical: 22,
+    paddingHorizontal: 36,
+  },
+  continuationHeader: {
+    backgroundColor: C.headerBg,
+    paddingVertical: 12,
+    paddingHorizontal: 36,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  continuationTitle: {
+    fontFamily: FONT_BOLD,
+    fontSize: 11,
+    color: C.white,
+    maxWidth: "62%",
+  },
+  continuationMeta: {
+    fontFamily: FONT,
+    fontSize: 9,
+    color: C.headerSoft,
+    textAlign: "right",
+    maxWidth: "36%",
+  },
+  headerRow1: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "flex-start",
   },
   logo: {
-    width: 168,
+    width: 200,
     height: 48,
     objectFit: "contain",
     objectPosition: "left",
   },
-  title: {
-    fontSize: 18,
-    fontFamily: "Helvetica-Bold",
-    color: "#0f172a",
-    marginBottom: 4,
+  periodBlock: {
+    alignItems: "flex-end",
   },
-  subtitle: {
-    fontSize: 10,
-    color: "#64748b",
-    marginBottom: 16,
+  periodLabel: {
+    fontFamily: FONT,
+    fontSize: 8,
+    letterSpacing: 1.5,
+    color: C.headerMuted,
+    textTransform: "uppercase",
   },
-  sectionLabel: {
+  periodMonth: {
+    fontFamily: FONT_BOLD,
+    fontSize: 20,
+    color: C.white,
+    marginTop: 2,
+  },
+  periodRange: {
+    fontFamily: FONT,
     fontSize: 10,
-    fontFamily: "Helvetica-Bold",
-    color: "#0f172a",
+    color: C.headerSoft,
+    marginTop: 2,
+  },
+  headerRow2: {
+    marginTop: 16,
+  },
+  propertyName: {
+    fontFamily: FONT_BOLD,
+    fontSize: 16,
+    color: C.white,
+  },
+  propertyAddress: {
+    fontFamily: FONT,
+    fontSize: 10,
+    color: C.headerSoft,
+    marginTop: 3,
+  },
+  headerRow3: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
     marginTop: 14,
-    marginBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
-    paddingBottom: 4,
+    paddingTop: 12,
+    borderTopWidth: 0.5,
+    borderTopColor: C.headerLine,
   },
-  row: {
+  ownerLabel: {
+    fontFamily: FONT,
+    fontSize: 8,
+    letterSpacing: 1.5,
+    color: C.headerMuted,
+    textTransform: "uppercase",
+  },
+  ownerName: {
+    fontFamily: FONT_BOLD,
+    fontSize: 12,
+    color: C.white,
+    marginTop: 2,
+  },
+  zarNote: {
+    fontFamily: FONT,
+    fontSize: 9,
+    color: C.headerMuted,
+  },
+  kpiStrip: {
+    backgroundColor: C.stripBg,
+    paddingVertical: 14,
+    paddingHorizontal: 36,
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.border,
     flexDirection: "row",
-    paddingVertical: 2,
+    gap: 8,
   },
-  rowHeader: {
+  kpiCard: {
+    flex: 1,
+    backgroundColor: C.white,
+    borderWidth: 0.5,
+    borderColor: C.border,
+    borderRadius: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  kpiCardAccent: {
+    backgroundColor: C.payoutCardBg,
+    borderColor: C.accentGreen,
+  },
+  kpiLabel: {
+    fontFamily: FONT_BOLD,
+    fontSize: 8,
+    letterSpacing: 1,
+    color: C.muted,
+    textTransform: "uppercase",
+    marginBottom: 5,
+  },
+  kpiValue: {
+    fontFamily: FONT_BOLD,
+    fontSize: 17,
+    color: C.ink,
+    lineHeight: 1.2,
+  },
+  kpiValueAccent: {
+    color: C.payoutGreen,
+  },
+  kpiSub: {
+    fontFamily: FONT,
+    fontSize: 9,
+    color: C.muted,
+    marginTop: 3,
+  },
+  occupancyTrack: {
+    width: "100%",
+    height: 3,
+    backgroundColor: C.border,
+    marginTop: 5,
+  },
+  occupancyFill: {
+    height: 3,
+    backgroundColor: C.accentGreen,
+  },
+  sectionPad: {
+    paddingVertical: 18,
+    paddingHorizontal: 36,
+  },
+  sectionPadFinancial: {
+    paddingTop: 18,
+    paddingBottom: STATEMENT_PDF_SAFE_INSET + 12,
+    paddingHorizontal: 36,
+  },
+  sectionHeading: {
+    fontFamily: FONT_BOLD,
+    fontSize: 8,
+    letterSpacing: 1.5,
+    color: C.muted,
+    textTransform: "uppercase",
+    marginBottom: 10,
+  },
+  tableBorder: {
+    borderWidth: 0.5,
+    borderColor: C.border,
+  },
+  tableRow: {
     flexDirection: "row",
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: "#cbd5e1",
-    marginBottom: 2,
   },
-  colDetails: { width: "18%" },
-  colNum: { width: "7%", textAlign: "right" },
-  muted: { color: "#64748b", fontSize: 7 },
-  summaryBox: {
-    marginTop: 8,
-    padding: 10,
-    backgroundColor: "#f8fafc",
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
+  tableRowAlt: {
+    backgroundColor: C.tableAlt,
+  },
+  tableHeaderRow: {
+    backgroundColor: "#f5f5f5",
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.border,
+  },
+  tableTotalRow: {
+    backgroundColor: C.totalBg,
+    borderTopWidth: 0.5,
+    borderTopColor: C.totalBorder,
+  },
+  headerCell: {
+    fontFamily: FONT_BOLD,
+    fontSize: 7,
+    letterSpacing: 0.5,
+    color: C.muted,
+    textTransform: "uppercase",
+    paddingVertical: 7,
+    paddingHorizontal: 5,
+    borderRightWidth: 0.5,
+    borderRightColor: C.border,
+  },
+  headerCellLast: {
+    borderRightWidth: 0,
+  },
+  dataCell: {
+    fontFamily: FONT,
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+    borderRightWidth: 0.5,
+    borderRightColor: C.borderSoft,
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.borderSoft,
+  },
+  dataCellMoney: {
+    fontFamily: FONT,
+    paddingVertical: 7,
+    paddingHorizontal: 2,
+    borderRightWidth: 0.5,
+    borderRightColor: C.borderSoft,
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.borderSoft,
+  },
+  dataCellLast: {
+    borderRightWidth: 0,
+  },
+  guestName: {
+    fontFamily: FONT_BOLD,
+    fontSize: 11,
+    color: C.ink,
+  },
+  guestMeta: {
+    fontFamily: FONT,
+    fontSize: 9,
+    color: C.muted,
+    marginTop: 2,
+  },
+  moneyCell: {
+    fontFamily: FONT,
+    fontSize: 8,
+    textAlign: "right",
+  },
+  financialStack: {
+    gap: 22,
+  },
+  financialBlock: {
+    width: "100%",
   },
   summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 3,
+    paddingVertical: 6,
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.borderSoft,
+    fontFamily: FONT,
+    fontSize: 11,
+    color: "#666666",
   },
-  summaryNet: {
+  summaryPayoutRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingTop: 8,
-    marginTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: "#cbd5e1",
-    fontFamily: "Helvetica-Bold",
-    fontSize: 11,
+    marginTop: 4,
+    paddingTop: 11,
+    borderTopWidth: 1.5,
+    borderTopColor: C.headerBg,
+    borderBottomWidth: 0,
   },
-  footer: {
-    marginTop: 20,
+  summaryPayoutLabel: {
+    fontFamily: FONT_BOLD,
+    fontSize: 15,
+    color: C.ink,
+  },
+  summaryPayoutValue: {
+    fontFamily: FONT_BOLD,
+    fontSize: 15,
+    color: C.payoutGreen,
+  },
+  discountNote: {
+    fontFamily: FONT,
     fontSize: 8,
-    color: "#94a3b8",
+    color: C.faint,
+    marginTop: 10,
+  },
+  /** First page only — balanced with compact table so 4 booking rows still fit. */
+  headerFirstPage: {
+    paddingTop: 22,
+    paddingBottom: 18,
+  },
+  logoFirstPage: {
+    width: 176,
+    height: 42,
+  },
+  periodMonthFirstPage: {
+    fontSize: 18,
+    marginTop: 3,
+  },
+  periodRangeFirstPage: {
+    marginTop: 4,
+  },
+  headerRow2FirstPage: {
+    marginTop: 14,
+  },
+  propertyNameFirstPage: {
+    fontSize: 14,
+    lineHeight: 1.25,
+  },
+  propertyAddressFirstPage: {
+    fontSize: 9.5,
+    marginTop: 5,
+    lineHeight: 1.35,
+  },
+  headerRow3FirstPage: {
+    marginTop: 14,
+    paddingTop: 10,
+    paddingBottom: 2,
+  },
+  ownerLabelFirstPage: {
+    marginTop: 0,
+  },
+  ownerNameFirstPage: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  zarNoteFirstPage: {
+    marginBottom: 2,
+  },
+  kpiStripFirstPage: {
+    paddingVertical: 8,
+    gap: 6,
+  },
+  kpiCardFirstPage: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  kpiLabelFirstPage: {
+    fontSize: 7,
+    marginBottom: 2,
+    letterSpacing: 0.6,
+  },
+  kpiValueFirstPage: {
+    fontSize: 13,
+  },
+  kpiSubFirstPage: {
+    fontSize: 7.5,
+    marginTop: 1,
+  },
+  occupancyTrackFirstPage: {
+    marginTop: 3,
+    height: 2,
+  },
+  occupancyFillFirstPage: {
+    height: 2,
+  },
+  sectionPadFirstPage: {
+    paddingTop: 6,
+    paddingBottom: 8,
+  },
+  sectionHeadingFirstPage: {
+    marginBottom: 5,
+  },
+  headerCellFirstPage: {
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    fontSize: 6.5,
+  },
+  dataCellFirstPage: {
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  dataCellMoneyFirstPage: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  guestNameFirstPage: {
+    fontSize: 9.5,
+  },
+  guestMetaFirstPage: {
+    fontSize: 7.5,
+    marginTop: 0,
+  },
+  moneyCellFirstPage: {
+    fontSize: 7,
+  },
+  emptyExpense: {
+    fontFamily: FONT,
+    fontSize: 10,
+    color: C.faint,
+    textAlign: "center",
+    paddingVertical: 12,
   },
 })
 
@@ -141,11 +582,416 @@ export type OwnerStatementPdfMeta = {
   isFinal: boolean
 }
 
-function SummaryLine({ label, value }: { label: string; value: string }) {
+type MoneyCellProps = {
+  amount: number
+  asDeduction?: boolean
+  bold?: boolean
+}
+
+function MoneyCellText({ amount, asDeduction, bold, compact }: MoneyCellProps & { compact?: boolean }) {
+  const isZero = amount === 0
+  const displayAmount = asDeduction && amount > 0 ? -amount : amount
+  let color: string = C.ink
+  if (isZero) color = C.zero
+  else if (displayAmount < 0 || (asDeduction && amount > 0)) color = C.deduction
+  if (bold && !isZero) color = C.headerBg
+
+  const text =
+    asDeduction && amount > 0
+      ? formatZARTableDeduction(amount)
+      : formatZARTable(displayAmount)
+
   return (
-    <View style={styles.summaryRow}>
-      <Text>{label}</Text>
-      <Text>{value}</Text>
+    <Text
+      wrap={false}
+      style={[
+        styles.moneyCell,
+        compact ? styles.moneyCellFirstPage : {},
+        { color, fontFamily: bold ? FONT_BOLD : FONT },
+      ]}
+    >
+      {text}
+    </Text>
+  )
+}
+
+function BookingCol({
+  width,
+  children,
+  align = "right",
+  isLast = false,
+  header = false,
+  bold = false,
+  money = false,
+  compact = false,
+}: {
+  width: string
+  children: ReactNode
+  align?: "left" | "right"
+  isLast?: boolean
+  header?: boolean
+  bold?: boolean
+  money?: boolean
+  compact?: boolean
+}) {
+  const base = header ? styles.headerCell : money ? styles.dataCellMoney : styles.dataCell
+  const compactBase = header
+    ? styles.headerCellFirstPage
+    : money
+      ? styles.dataCellMoneyFirstPage
+      : styles.dataCellFirstPage
+  const cellStyle = [
+    base,
+    compact ? compactBase : {},
+    { width, textAlign: align },
+    isLast ? (header ? styles.headerCellLast : styles.dataCellLast) : {},
+  ]
+  return (
+    <View style={cellStyle}>
+      {typeof children === "string" ? (
+        <Text
+          wrap={false}
+          style={
+            header
+              ? {
+                  fontFamily: FONT_BOLD,
+                  fontSize: compact ? 6.5 : 7,
+                  letterSpacing: 0.4,
+                  color: C.muted,
+                  textTransform: "uppercase",
+                }
+              : bold
+                ? { fontFamily: FONT_BOLD, fontSize: compact ? 9.5 : 11, color: C.headerBg }
+                : { fontFamily: FONT }
+          }
+        >
+          {children}
+        </Text>
+      ) : (
+        children
+      )}
+    </View>
+  )
+}
+
+const BOOKING_HEADERS = [
+  "GUEST · CHANNEL · STAY",
+  "ACCOM.",
+  "DISCOUNT",
+  "EXTRA",
+  "CLEANING",
+  "UPSELLS",
+  "TAXES",
+  "CHANNEL COMM.",
+  "MGMT FEE",
+  "PROCESSING",
+  "PAYOUT",
+] as const
+
+function BookingMoneyCells({
+  row,
+  bold,
+  compact,
+}: {
+  row: OwnerStatementSnapshotBookingV1
+  bold?: boolean
+  compact?: boolean
+}) {
+  return (
+    <>
+      <BookingCol width={BOOKING_COL_WIDTHS[1]} money compact={compact}>
+        <MoneyCellText amount={row.accommodation_total} bold={bold} compact={compact} />
+      </BookingCol>
+      <BookingCol width={BOOKING_COL_WIDTHS[2]} money compact={compact}>
+        <MoneyCellText amount={row.discount} asDeduction bold={bold} compact={compact} />
+      </BookingCol>
+      <BookingCol width={BOOKING_COL_WIDTHS[3]} money compact={compact}>
+        <MoneyCellText amount={row.extra_charges} bold={bold} compact={compact} />
+      </BookingCol>
+      <BookingCol width={BOOKING_COL_WIDTHS[4]} money compact={compact}>
+        <MoneyCellText amount={row.cleaning_fee} bold={bold} compact={compact} />
+      </BookingCol>
+      <BookingCol width={BOOKING_COL_WIDTHS[5]} money compact={compact}>
+        <MoneyCellText amount={row.upsells} bold={bold} compact={compact} />
+      </BookingCol>
+      <BookingCol width={BOOKING_COL_WIDTHS[6]} money compact={compact}>
+        <MoneyCellText amount={row.booking_taxes} bold={bold} compact={compact} />
+      </BookingCol>
+      <BookingCol width={BOOKING_COL_WIDTHS[7]} money compact={compact}>
+        <MoneyCellText amount={row.channel_commission} asDeduction bold={bold} compact={compact} />
+      </BookingCol>
+      <BookingCol width={BOOKING_COL_WIDTHS[8]} money compact={compact}>
+        <MoneyCellText amount={row.total_management_fee} asDeduction bold={bold} compact={compact} />
+      </BookingCol>
+      <BookingCol width={BOOKING_COL_WIDTHS[9]} money compact={compact}>
+        <MoneyCellText amount={row.payment_processing_fee} asDeduction bold={bold} compact={compact} />
+      </BookingCol>
+      <BookingCol width={BOOKING_COL_WIDTHS[10]} isLast money compact={compact}>
+        <MoneyCellText amount={row.total_payout} bold={bold} compact={compact} />
+      </BookingCol>
+    </>
+  )
+}
+
+function StatementContinuationHeader({
+  propertyName,
+  month,
+  year,
+  suffix = "Bookings (continued)",
+}: {
+  propertyName: string
+  month: number
+  year: number
+  suffix?: string
+}) {
+  return (
+    <View style={[styles.continuationHeader, styles.bleedBlock]} wrap={false}>
+      <Text style={styles.continuationTitle}>{propertyName}</Text>
+      <Text style={styles.continuationMeta}>
+        {formatMonthYear(month, year)} · {suffix}
+      </Text>
+    </View>
+  )
+}
+
+function BookingsTable({
+  rows,
+  totalRow,
+  showTotal,
+  compact = false,
+}: {
+  rows: OwnerStatementSnapshotBookingV1[]
+  totalRow: OwnerStatementSnapshotBookingV1
+  showTotal: boolean
+  compact?: boolean
+}) {
+  return (
+    <View style={styles.tableBorder}>
+      <View style={[styles.tableRow, styles.tableHeaderRow]} wrap={false}>
+        {BOOKING_HEADERS.map((label, i) => (
+          <BookingCol
+            key={label}
+            width={BOOKING_COL_WIDTHS[i]}
+            align={i === 0 ? "left" : "right"}
+            header
+            compact={compact}
+            isLast={i === BOOKING_HEADERS.length - 1}
+          >
+            {label}
+          </BookingCol>
+        ))}
+      </View>
+      {rows.map((row, index) => (
+        <View
+          key={row.id}
+          wrap={false}
+          style={index % 2 === 1 ? [styles.tableRow, styles.tableRowAlt] : styles.tableRow}
+        >
+          <BookingCol width={BOOKING_COL_WIDTHS[0]} align="left" compact={compact}>
+            <Text style={compact ? styles.guestNameFirstPage : styles.guestName}>{row.guest_name}</Text>
+            <Text style={compact ? styles.guestMetaFirstPage : styles.guestMeta}>
+              {row.channel_label} ·{" "}
+              {compact
+                ? `${formatStayDateCompact(row.check_in)} – ${formatStayDateCompact(row.check_out)}`
+                : `${formatStayDate(row.check_in)} – ${formatStayDate(row.check_out)}`}{" "}
+              · {row.num_nights} night{row.num_nights === 1 ? "" : "s"}
+            </Text>
+          </BookingCol>
+          <BookingMoneyCells row={row} compact={compact} />
+        </View>
+      ))}
+      {showTotal ? (
+        <View wrap={false} style={[styles.tableRow, styles.tableTotalRow]}>
+          <BookingCol width={BOOKING_COL_WIDTHS[0]} align="left" bold compact={compact}>
+            Total
+          </BookingCol>
+          <BookingMoneyCells row={totalRow} bold compact={compact} />
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
+function StatementFinancialSection({
+  expenseLines,
+  expenseTotal,
+  grossRevenue,
+  channelCommissions,
+  totalManagementFees,
+  otaPayout,
+  totalExpenses,
+  ownerPayout,
+  totalDiscounts,
+}: {
+  expenseLines: OwnerStatementExpenseComputed[]
+  expenseTotal: number
+  grossRevenue: number
+  channelCommissions: number
+  totalManagementFees: number
+  otaPayout: number
+  totalExpenses: number
+  ownerPayout: number
+  totalDiscounts: number
+}) {
+  return (
+    <View style={styles.financialStack}>
+      <View style={styles.financialBlock}>
+        <Text style={styles.sectionHeading}>ADDITIONAL EXPENSES</Text>
+        <View style={styles.tableBorder}>
+          <View style={[styles.tableRow, styles.tableHeaderRow]} wrap={false}>
+            {["DESCRIPTION", "QTY", "UNIT PRICE", "SERVICE FEE", "TOTAL AMOUNT"].map((label, i) => (
+              <BookingCol
+                key={label}
+                width={EXPENSE_COL_WIDTHS[i]}
+                align={i === 0 ? "left" : "right"}
+                header
+                isLast={i === 4}
+              >
+                {label}
+              </BookingCol>
+            ))}
+          </View>
+          {expenseLines.length === 0 ? (
+            <View style={styles.tableRow} wrap={false}>
+              <View style={{ width: "100%", borderBottomWidth: 0.5, borderBottomColor: C.borderSoft }}>
+                <Text style={styles.emptyExpense}>No additional expenses recorded</Text>
+              </View>
+            </View>
+          ) : (
+            expenseLines.map((line, index) => {
+              const serviceFee = expenseServiceFee(line)
+              return (
+                <View
+                  key={line.key}
+                  wrap={false}
+                  style={index % 2 === 1 ? [styles.tableRow, styles.tableRowAlt] : styles.tableRow}
+                >
+                  <BookingCol width={EXPENSE_COL_WIDTHS[0]} align="left">
+                    <Text style={{ fontFamily: FONT, fontSize: 10, color: C.ink }}>{line.label}</Text>
+                  </BookingCol>
+                  <BookingCol width={EXPENSE_COL_WIDTHS[1]}>
+                    <Text style={[styles.moneyCell, { color: line.quantity == null ? C.dash : C.ink }]}>
+                      {line.quantity != null ? String(line.quantity) : "—"}
+                    </Text>
+                  </BookingCol>
+                  <BookingCol width={EXPENSE_COL_WIDTHS[2]}>
+                    <Text style={[styles.moneyCell, { color: line.unitPrice == null ? C.dash : C.ink }]}>
+                      {line.unitPrice != null ? formatZAR(line.unitPrice) : "—"}
+                    </Text>
+                  </BookingCol>
+                  <BookingCol width={EXPENSE_COL_WIDTHS[3]}>
+                    <Text style={[styles.moneyCell, { color: serviceFee == null ? C.dash : C.ink }]}>
+                      {serviceFee != null ? formatZAR(serviceFee) : "—"}
+                    </Text>
+                  </BookingCol>
+                  <BookingCol width={EXPENSE_COL_WIDTHS[4]} isLast>
+                    <MoneyCellText amount={line.chargedAmount} bold />
+                  </BookingCol>
+                </View>
+              )
+            })
+          )}
+          {expenseLines.length > 0 ? (
+            <View wrap={false} style={[styles.tableRow, styles.tableTotalRow]}>
+              <BookingCol width={EXPENSE_COL_WIDTHS[0]} align="left" bold>
+                Total expenses
+              </BookingCol>
+              <BookingCol width={EXPENSE_COL_WIDTHS[1]}>
+                <Text> </Text>
+              </BookingCol>
+              <BookingCol width={EXPENSE_COL_WIDTHS[2]}>
+                <Text> </Text>
+              </BookingCol>
+              <BookingCol width={EXPENSE_COL_WIDTHS[3]}>
+                <Text> </Text>
+              </BookingCol>
+              <BookingCol width={EXPENSE_COL_WIDTHS[4]} isLast>
+                <MoneyCellText amount={expenseTotal} bold />
+              </BookingCol>
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={styles.financialBlock}>
+        <Text style={styles.sectionHeading}>FINANCIAL SUMMARY</Text>
+        <View style={styles.summaryRow}>
+          <Text style={{ fontFamily: FONT }}>Revenue</Text>
+          <Text style={{ fontFamily: FONT }}>{formatZAR(grossRevenue)}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={{ fontFamily: FONT }}>Less: Booking fees</Text>
+          <Text style={{ fontFamily: FONT }}>{formatZARDeduction(channelCommissions)}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={{ fontFamily: FONT }}>Less: Management fees</Text>
+          <Text style={{ fontFamily: FONT }}>{formatZARDeduction(totalManagementFees)}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={{ fontFamily: FONT }}>OTA payout (ref.)</Text>
+          <Text style={{ fontFamily: FONT }}>{formatZAR(otaPayout)}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={{ fontFamily: FONT }}>Less: Expenses</Text>
+          <Text style={{ fontFamily: FONT }}>{formatZARDeduction(totalExpenses)}</Text>
+        </View>
+        <View style={styles.summaryPayoutRow}>
+          <Text style={styles.summaryPayoutLabel}>Owner payout</Text>
+          <Text style={styles.summaryPayoutValue}>{formatZAR(ownerPayout)}</Text>
+        </View>
+        {totalDiscounts > 0 ? (
+          <Text style={styles.discountNote}>
+            Guest discounts of {formatZAR(totalDiscounts)} are shown in the booking table and are already reflected
+            in revenue and OTA payouts.
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  )
+}
+
+function KpiCard({
+  label,
+  value,
+  sub,
+  accent,
+  occupancyBar,
+  compact = false,
+}: {
+  label: string
+  value: string
+  sub: string
+  accent?: boolean
+  occupancyBar?: number
+  compact?: boolean
+}) {
+  const cardStyle = accent
+    ? [styles.kpiCard, styles.kpiCardAccent, compact ? styles.kpiCardFirstPage : {}]
+    : [styles.kpiCard, compact ? styles.kpiCardFirstPage : {}]
+
+  return (
+    <View style={cardStyle}>
+      <Text style={compact ? [styles.kpiLabel, styles.kpiLabelFirstPage] : styles.kpiLabel}>{label}</Text>
+      <Text
+        style={
+          accent
+            ? [styles.kpiValue, styles.kpiValueAccent, compact ? styles.kpiValueFirstPage : {}]
+            : [styles.kpiValue, compact ? styles.kpiValueFirstPage : {}]
+        }
+      >
+        {value}
+      </Text>
+      <Text style={compact ? [styles.kpiSub, styles.kpiSubFirstPage] : styles.kpiSub}>{sub}</Text>
+      {occupancyBar != null ? (
+        <View style={compact ? styles.occupancyTrackFirstPage : styles.occupancyTrack}>
+          <View
+            style={[
+              compact ? styles.occupancyFillFirstPage : styles.occupancyFill,
+              { width: `${Math.min(100, Math.max(0, occupancyBar))}%` },
+            ]}
+          />
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -159,170 +1005,212 @@ export function OwnerStatementPdfDocument({
 }) {
   const { lines: expenseLines } = computeExpenses(snapshot.manualLines, snapshot.receiptLines)
   const t = snapshot.totals
-  const period = formatStatementPeriod(snapshot.month, snapshot.year)
+  const { month, year } = snapshot
+
+  const rows = snapshot.bookings.map(normaliseBooking)
+  const feeSums = sumBookings(rows)
+  const channelCommissions = feeSums.channelCommission
+  const totalManagementFees = feeSums.managementFee
+
+  const daysInMonth = getDaysInMonth(new Date(year, month - 1, 1))
+  const bookedNights = rows.reduce(
+    (s, r) => s + bookedNightsInMonth(r.check_in, r.check_out, month, year),
+    0
+  )
+  const occupancyRate = daysInMonth > 0 ? (bookedNights / daysInMonth) * 100 : 0
+
+  const grossRevenue = t.totalGross ?? 0
+  const totalExpenses = t.otherExpenses ?? 0
+  const ownerPayout = t.netToOwner ?? 0
+  const totalDiscounts = t.totalDiscount ?? 0
+  const otaPayout = t.totalPayout ?? 0
+
+  const totalRow: OwnerStatementSnapshotBookingV1 = {
+    id: "total",
+    guest_name: "Total",
+    check_in: "",
+    check_out: "",
+    num_nights: 0,
+    channel_label: "",
+    accommodation_total: rows.reduce((s, r) => s + r.accommodation_total, 0),
+    discount: rows.reduce((s, r) => s + r.discount, 0),
+    extra_guest_charge: rows.reduce((s, r) => s + r.extra_guest_charge, 0),
+    cleaning_fee: rows.reduce((s, r) => s + r.cleaning_fee, 0),
+    extra_charges: rows.reduce((s, r) => s + r.extra_charges, 0),
+    upsells: rows.reduce((s, r) => s + r.upsells, 0),
+    booking_taxes: rows.reduce((s, r) => s + r.booking_taxes, 0),
+    channel_commission: rows.reduce((s, r) => s + r.channel_commission, 0),
+    total_management_fee: rows.reduce((s, r) => s + r.total_management_fee, 0),
+    payment_processing_fee: rows.reduce((s, r) => s + r.payment_processing_fee, 0),
+    total_payout: otaPayout,
+  }
+
+  const generatedDate = new Date().toLocaleDateString("en-ZA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  })
+
+  const expenseTotal = expenseLines.reduce((s, l) => s + l.chargedAmount, 0)
+  const channelSlices = buildStatementChannelSlices(rows)
+  const incomeExpense = computeStatementIncomeExpense(rows, ownerPayout, totalExpenses)
+  const analyticsSummary = computeStatementAnalyticsSummary({
+    bookingCount: rows.length,
+    bookedNights,
+    daysInMonth,
+    occupancyRate,
+    grossRevenue,
+  })
+
+  const bookingChunks = chunkStatementBookings(rows)
+  const financialProps = {
+    expenseLines,
+    expenseTotal,
+    grossRevenue,
+    channelCommissions,
+    totalManagementFees,
+    otaPayout,
+    totalExpenses,
+    ownerPayout,
+    totalDiscounts,
+  }
 
   return (
-    <Document>
-      <Page size="A4" style={styles.page}>
-        <View style={styles.logoWrap}>
-          <Image src={getStatementLogoDataUri()} style={styles.logo} />
-        </View>
-        <Text style={styles.title}>Owner statement</Text>
-        <Text style={styles.subtitle}>{period}</Text>
-
-        <View style={{ marginBottom: 12 }}>
-          <Text style={{ fontFamily: "Helvetica-Bold", marginBottom: 2 }}>{meta.propertyName}</Text>
-          <Text style={styles.muted}>{meta.propertyAddressLine}</Text>
-          {meta.ownerName ? (
-            <Text style={{ marginTop: 4 }}>
-              Owner: <Text style={{ fontFamily: "Helvetica-Bold" }}>{meta.ownerName}</Text>
-            </Text>
-          ) : null}
-        </View>
-
-        <Text style={styles.sectionLabel}>Bookings</Text>
-        <Text style={[styles.muted, { marginBottom: 4 }]}>
-          Full breakdown from CSV import. Amounts in ZAR.
-        </Text>
-        <View style={styles.rowHeader}>
-          <Text style={[styles.colDetails, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>
-            Guest · Channel · Stay · Nights
-          </Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Accom.</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Discount</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Extra guest</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Cleaning</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Extras</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Upsells</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Taxes</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Channel comm.</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Mgmt fee</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Proc. fee</Text>
-          <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Payout</Text>
-        </View>
-        {snapshot.bookings.map((b) => {
-          const row = normaliseBooking(b)
-          return (
-            <View key={row.id} style={styles.row} wrap={false}>
-              <Text style={[styles.colDetails, { fontSize: 7 }]}>
-                {row.guest_name}{"\n"}
-                {row.channel_label}{"\n"}
-                {formatShortDate(row.check_in)} – {formatShortDate(row.check_out)}{"\n"}
-                Nights: {row.num_nights}
-              </Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>{formatMoneyZar(row.accommodation_total)}</Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>
-                {row.discount !== 0 ? formatMoneyZar(-row.discount) : "—"}
-              </Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>{formatMoneyZar(row.extra_guest_charge)}</Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>{formatMoneyZar(row.cleaning_fee)}</Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>{formatMoneyZar(row.extra_charges)}</Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>{formatMoneyZar(row.upsells)}</Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>{formatMoneyZar(row.booking_taxes)}</Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>
-                {row.channel_commission !== 0 ? formatMoneyZar(-row.channel_commission) : "—"}
-              </Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>
-                {row.total_management_fee !== 0 ? formatMoneyZar(-row.total_management_fee) : "—"}
-              </Text>
-              <Text style={[styles.colNum, { fontSize: 7 }]}>
-                {row.payment_processing_fee !== 0 ? formatMoneyZar(-row.payment_processing_fee) : "—"}
-              </Text>
-              <Text style={[styles.colNum, { fontSize: 7, fontFamily: "Helvetica-Bold" }]}>
-                {formatMoneyZar(row.total_payout)}
-              </Text>
-            </View>
-          )
-        })}
-        {(() => {
-          const rows = snapshot.bookings.map(normaliseBooking)
-          const totAcc = rows.reduce((s, r) => s + r.accommodation_total, 0)
-          const totDisc = rows.reduce((s, r) => s + r.discount, 0)
-          const totExtGuest = rows.reduce((s, r) => s + r.extra_guest_charge, 0)
-          const totClean = rows.reduce((s, r) => s + r.cleaning_fee, 0)
-          const totExtras = rows.reduce((s, r) => s + r.extra_charges, 0)
-          const totUpsells = rows.reduce((s, r) => s + r.upsells, 0)
-          const totTaxes = rows.reduce((s, r) => s + r.booking_taxes, 0)
-          const totChannel = rows.reduce((s, r) => s + r.channel_commission, 0)
-          const totMgmt = rows.reduce((s, r) => s + r.total_management_fee, 0)
-          const totProc = rows.reduce((s, r) => s + r.payment_processing_fee, 0)
-          return (
-            <View style={[styles.row, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: "#cbd5e1" }]}>
-              <Text style={[styles.colDetails, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>Total</Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>{formatMoneyZar(totAcc)}</Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>
-                {totDisc !== 0 ? formatMoneyZar(-totDisc) : "—"}
-              </Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>{formatMoneyZar(totExtGuest)}</Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>{formatMoneyZar(totClean)}</Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>{formatMoneyZar(totExtras)}</Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>{formatMoneyZar(totUpsells)}</Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>{formatMoneyZar(totTaxes)}</Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>
-                {totChannel !== 0 ? formatMoneyZar(-totChannel) : "—"}
-              </Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>
-                {totMgmt !== 0 ? formatMoneyZar(-totMgmt) : "—"}
-              </Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>
-                {totProc !== 0 ? formatMoneyZar(-totProc) : "—"}
-              </Text>
-              <Text style={[styles.colNum, { fontFamily: "Helvetica-Bold", fontSize: 7 }]}>
-                {formatMoneyZar(t.totalPayout)}
-              </Text>
-            </View>
-          )
-        })()}
-
-        <Text style={styles.sectionLabel}>Summary</Text>
-        <View style={styles.summaryBox}>
-          <SummaryLine label="Total payout" value={formatMoneyZar(t.totalPayout)} />
-          <SummaryLine
-            label={`Right Stay commission (${snapshot.commissionPercentEffective.toFixed(2)}%)`}
-            value={`− ${formatMoneyZar(t.rsaCommission)}`}
-          />
-          <SummaryLine label="Cleaning fees (from bookings)" value={`− ${formatMoneyZar(t.totalCleaning)}`} />
-          <SummaryLine label="Other expenses" value={`− ${formatMoneyZar(t.otherExpenses)}`} />
-          <View style={styles.summaryNet}>
-            <Text>Net to owner</Text>
-            <Text>{formatMoneyZar(t.netToOwner)}</Text>
-          </View>
-        </View>
-
-        {expenseLines.length > 0 ? (
-          <>
-            <Text style={styles.sectionLabel}>Expense detail</Text>
-            <View style={styles.rowHeader}>
-              <Text style={{ width: "34%", fontFamily: "Helvetica-Bold" }}>Description</Text>
-              <Text style={{ width: "10%", fontFamily: "Helvetica-Bold" }}>Qty</Text>
-              <Text style={{ width: "16%", fontFamily: "Helvetica-Bold" }}>Unit price</Text>
-              <Text style={{ width: "14%", fontFamily: "Helvetica-Bold" }}>Base</Text>
-              <Text style={{ width: "10%", fontFamily: "Helvetica-Bold" }}>+10%</Text>
-              <Text style={{ width: "16%", textAlign: "right", fontFamily: "Helvetica-Bold" }}>Charged</Text>
-            </View>
-            {expenseLines.map((line) => (
-              <View key={line.key} style={styles.row} wrap={false}>
-                <Text style={{ width: "34%" }}>{line.label}</Text>
-                <Text style={{ width: "10%" }}>
-                  {line.quantity != null
-                    ? new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 4 }).format(line.quantity)
-                    : "—"}
-                </Text>
-                <Text style={{ width: "16%" }}>
-                  {line.unitPrice != null ? formatMoneyZar(line.unitPrice) : "—"}
-                </Text>
-                <Text style={{ width: "14%" }}>{formatMoneyZar(line.baseAmount)}</Text>
-                <Text style={{ width: "10%" }}>{line.addTenPercent ? "Yes" : "—"}</Text>
-                <Text style={{ width: "16%", textAlign: "right" }}>{formatMoneyZar(line.chargedAmount)}</Text>
+    <Document
+      title={`Owner statement — ${meta.propertyName} — ${formatMonthYear(month, year)}`}
+      author="Right Stay Africa"
+    >
+      {bookingChunks.map((chunk, chunkIndex) => (
+        <Page key={`bookings-${chunkIndex}`} size="A4" orientation="landscape" style={styles.page}>
+          {chunkIndex === 0 ? (
+            <>
+              <View style={[styles.header, styles.bleedBlock, styles.headerFirstPage]} wrap={false}>
+                <View style={styles.headerRow1}>
+                  <Image src={getStatementLogoDataUri()} style={[styles.logo, styles.logoFirstPage]} />
+                  <View style={styles.periodBlock}>
+                    <Text style={styles.periodLabel}>OWNER STATEMENT</Text>
+                    <Text style={[styles.periodMonth, styles.periodMonthFirstPage]}>
+                      {formatMonthYear(month, year)}
+                    </Text>
+                    <Text style={[styles.periodRange, styles.periodRangeFirstPage]}>
+                      {formatPeriodRange(month, year)}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.headerRow2, styles.headerRow2FirstPage]}>
+                  <Text style={[styles.propertyName, styles.propertyNameFirstPage]}>{meta.propertyName}</Text>
+                  <Text style={[styles.propertyAddress, styles.propertyAddressFirstPage]}>
+                    {meta.propertyAddressLine}
+                  </Text>
+                </View>
+                <View style={[styles.headerRow3, styles.headerRow3FirstPage]}>
+                  <View>
+                    <Text style={[styles.ownerLabel, styles.ownerLabelFirstPage]}>PROPERTY OWNER</Text>
+                    <Text style={[styles.ownerName, styles.ownerNameFirstPage]}>
+                      {meta.ownerName ?? "—"}
+                    </Text>
+                  </View>
+                  <Text style={[styles.zarNote, styles.zarNoteFirstPage]}>All amounts in ZAR</Text>
+                </View>
               </View>
-            ))}
-          </>
-        ) : null}
 
-        <Text style={styles.footer}>
-          Amounts in South African Rand (ZAR). This statement reflects CSV import data and expenses recorded in
-          the PMS. Generated {new Date().toLocaleDateString("en-ZA")}.
-        </Text>
+              <View style={[styles.kpiStrip, styles.bleedBlock, styles.kpiStripFirstPage]} wrap={false}>
+                <KpiCard
+                  compact
+                  label="REVENUE"
+                  value={formatZAR(grossRevenue)}
+                  sub="Gross accommodation"
+                />
+                <KpiCard
+                  compact
+                  label="BOOKING FEES"
+                  value={formatZAR(channelCommissions)}
+                  sub="Channel commissions"
+                />
+                <KpiCard
+                  compact
+                  label="MGMT FEES"
+                  value={formatZAR(totalManagementFees)}
+                  sub="Management fees"
+                />
+                <KpiCard compact label="EXPENSES" value={formatZAR(totalExpenses)} sub="Additional items" />
+                <KpiCard
+                  compact
+                  label="OCCUPANCY"
+                  value={`${occupancyRate.toFixed(1)}%`}
+                  sub={`${bookedNights} of ${daysInMonth} nights booked`}
+                  occupancyBar={occupancyRate}
+                />
+                <KpiCard
+                  compact
+                  label="OWNER PAYOUT"
+                  value={formatZAR(ownerPayout)}
+                  sub="Net after all deductions"
+                  accent
+                />
+              </View>
+            </>
+          ) : (
+            <StatementContinuationHeader
+              propertyName={meta.propertyName}
+              month={month}
+              year={year}
+            />
+          )}
+
+          <View style={chunkIndex === 0 ? [styles.sectionPad, styles.sectionPadFirstPage] : styles.sectionPad}>
+            <Text
+              style={
+                chunkIndex === 0
+                  ? [styles.sectionHeading, styles.sectionHeadingFirstPage]
+                  : styles.sectionHeading
+              }
+            >
+              {chunkIndex === 0 ? "BOOKINGS" : "BOOKINGS (CONTINUED)"}
+            </Text>
+            <BookingsTable
+              rows={chunk}
+              totalRow={totalRow}
+              showTotal={chunkIndex === bookingChunks.length - 1}
+              compact={chunkIndex === 0}
+            />
+          </View>
+
+          <StatementPdfFooter generatedDate={generatedDate} backgroundColor={C.white} />
+        </Page>
+      ))}
+
+      <Page size="A4" orientation="landscape" style={styles.page}>
+        <StatementContinuationHeader
+          propertyName={meta.propertyName}
+          month={month}
+          year={year}
+          suffix="Expenses & financial summary"
+        />
+        <View style={styles.sectionPadFinancial}>
+          <StatementFinancialSection {...financialProps} />
+        </View>
+        <StatementPdfFooter generatedDate={generatedDate} backgroundColor={C.white} />
+      </Page>
+
+      <Page
+        size="A4"
+        orientation="landscape"
+        style={[styles.page, { backgroundColor: C.stripBg }]}
+      >
+        <OwnerStatementPdfAnalyticsPage
+          channelSlices={channelSlices}
+          incomeExpense={incomeExpense}
+          summary={analyticsSummary}
+          periodLabel={formatMonthYear(month, year)}
+          periodRange={formatPeriodRange(month, year)}
+          propertyName={meta.propertyName}
+        />
+        <StatementPdfFooter
+          generatedDate={generatedDate}
+          backgroundColor="#f5f7f5"
+          metaSuffix="CSV import data and PMS expenses"
+        />
       </Page>
     </Document>
   )

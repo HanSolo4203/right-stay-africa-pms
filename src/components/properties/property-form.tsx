@@ -68,6 +68,7 @@ const defaultValues: PropertyFormValues = {
   airbnb_listing_url: "",
   booking_com_listing_url: "",
   right_stay_commission_percent: undefined,
+  welcome_pack_fee: undefined,
 }
 
 export function PropertyForm({ mode, propertyId, initialValues }: PropertyFormProps) {
@@ -284,7 +285,11 @@ export function PropertyForm({ mode, propertyId, initialValues }: PropertyFormPr
           </section>
 
           <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
-            <h2 className="text-lg font-semibold text-slate-900">Details</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Statement settings</h2>
+            <p className="text-sm text-slate-600">
+              Used on client and owner statements: management fee when CSV has no fee, and welcome pack
+              charged once per included booking.
+            </p>
             <div className="grid gap-4 md:grid-cols-4">
               <FormField
                 control={form.control}
@@ -312,7 +317,38 @@ export function PropertyForm({ mode, propertyId, initialValues }: PropertyFormPr
                       />
                     </FormControl>
                     <p className="text-xs text-muted-foreground">
-                      Applied to total payout on generated owner statements. Leave empty if not set.
+                      Management fee % on client statements when CSV fee is empty.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="welcome_pack_fee"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Welcome pack fee (per booking)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        placeholder="e.g. 160"
+                        value={field.value === undefined ? "" : field.value}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === "") {
+                            field.onChange(undefined)
+                            return
+                          }
+                          const n = Number(v)
+                          field.onChange(Number.isFinite(n) ? n : undefined)
+                        }}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      e.g. R160 for 305 Amalfi — added as an automatic expense per booking on statements.
                     </p>
                     <FormMessage />
                   </FormItem>

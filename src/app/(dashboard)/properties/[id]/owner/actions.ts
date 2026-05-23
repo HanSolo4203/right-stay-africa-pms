@@ -1,6 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import { syncOwnerToClient } from "@/lib/clients/sync-owner-to-client"
 import { prisma } from "@/lib/prisma"
 import { ownerSchema, type OwnerFormValues } from "@/lib/validations/owner"
 
@@ -37,8 +38,14 @@ export async function saveOwner(propertyId: string, data: OwnerFormValues) {
     update: normalizePayload(parsed.data),
   })
 
+  await syncOwnerToClient(propertyId)
+
   revalidatePath(`/dashboard/properties/${propertyId}`)
   revalidatePath("/dashboard/owners")
+  revalidatePath("/clients")
+  revalidatePath("/clients/statements")
+  revalidatePath("/clients/management-fees")
+  revalidatePath("/clients/account-details")
 }
 
 export async function deleteOwner(propertyId: string) {

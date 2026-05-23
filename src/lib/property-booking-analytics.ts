@@ -1,5 +1,6 @@
 import { BookingSource, BookingStatus } from "@prisma/client"
 import { differenceInCalendarDays, format, parseISO } from "date-fns"
+import { getAnalyticsChannelLabel } from "@/lib/booking-channel-label"
 
 export type PropertyAnalyticsPeriod = "month" | "year" | "last_year" | "all"
 
@@ -72,29 +73,7 @@ const ACTIVE_STATUSES = new Set<BookingStatus>([
   BookingStatus.CHECKED_OUT,
 ])
 
-const SOURCE_LABEL: Record<BookingSource, string> = {
-  AIRBNB: "Airbnb",
-  BOOKING_COM: "Booking.com",
-  DIRECT: "Direct",
-  OTHER: "Other",
-}
-
-export function getAnalyticsChannelLabel(
-  channelName: string | null | undefined,
-  source: BookingSource
-): string {
-  const raw = channelName?.trim()
-  if (raw) {
-    const key = raw.toLowerCase()
-    if (key.includes("airbnb")) return "Airbnb"
-    if (key.includes("booking")) return "Booking.com"
-    if (key === "uplisting" || key === "direct" || key.includes("direct")) return "Direct"
-    return raw
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase())
-  }
-  return SOURCE_LABEL[source]
-}
+export { getAnalyticsChannelLabel } from "@/lib/booking-channel-label"
 
 export function filterBookingsInAnalyticsPeriod<T extends PropertyBookingAnalyticsRow>(
   rows: T[],

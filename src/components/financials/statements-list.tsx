@@ -1,17 +1,15 @@
 "use client"
 
 import { BookingStatus } from "@prisma/client"
-import { format, parseISO } from "date-fns"
-import type { ReactNode } from "react"
-import { cn } from "@/lib/utils"
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { parseISO } from "date-fns"
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react"
 import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import type { BookingListRow } from "@/components/bookings/booking-list"
-import { formatChannelLabel } from "@/components/bookings/booking-list"
 import { deleteStatement } from "@/app/(dashboard)/properties/[id]/statements/actions"
 import { BookingDetailSheet } from "@/components/financials/booking-detail-sheet"
 import { GenerateOwnerStatementModal } from "@/components/financials/generate-owner-statement-modal"
+import { StatementBookingSubsection } from "@/components/financials/statement-booking-subsection"
 import { UploadStatementModal } from "@/components/financials/upload-statement-modal"
 import {
   AlertDialog,
@@ -30,6 +28,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { toast } from "@/components/ui/toast"
+import {
+  applyPayoutFilter,
+  formatStatementMonthYear,
+  type PayoutFilter,
+} from "@/lib/clients/statement-booking-ui"
 import {
   checkInInCalendarMonth,
   nextCalendarMonth,
@@ -54,6 +57,7 @@ type StatementsListProps = {
   propertyId: string
   propertyName: string
   propertyCommissionPercent: number | null
+  welcomePackFeePerBooking: number
   statements: StatementItem[]
   userRole: "SUPER_ADMIN" | "PROPERTY_MANAGER" | "OWNER" | null
   bookings: BookingListRow[]
@@ -95,178 +99,10 @@ function checkInInMonth(booking: BookingListRow, year: number, month: number): b
   return checkInInCalendarMonth(d, year, month)
 }
 
-type PayoutFilter = "all" | "unpaid" | "paid"
-
-function applyPayoutFilter(rows: BookingListRow[], filter: PayoutFilter): BookingListRow[] {
-  if (filter === "unpaid") return rows.filter((b) => !b.owner_statement_id)
-  if (filter === "paid") return rows.filter((b) => b.owner_statement_id)
-  return rows
-}
-
-type StatementBookingIncludeMode = "statement-eligible" | "next-month"
-
-function StatementBookingSubsection({
-  title,
-  description,
-  rows,
-  canUpload,
-  selectedIds,
-  onToggle,
-  onOpenDetail,
-  includeMode,
-  greyed,
-  emptyMessage,
-  headerActions,
-}: {
-  title: string
-  description?: string
-  rows: BookingListRow[]
-  canUpload: boolean
-  selectedIds: Set<string>
-  onToggle: (id: string) => void
-  onOpenDetail: (b: BookingListRow) => void
-  includeMode: StatementBookingIncludeMode
-  greyed?: boolean
-  emptyMessage: string
-  headerActions?: ReactNode
-}) {
-  return (
-    <div
-      className={cn(
-        "space-y-2 rounded-lg border p-4",
-        greyed ? "border-dashed border-slate-200 bg-slate-50/70 text-slate-600" : "border-slate-200 bg-white"
-      )}
-    >
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h3 className={cn("text-sm font-semibold", greyed ? "text-slate-600" : "text-slate-900")}>{title}</h3>
-          {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
-        </div>
-        {headerActions ? <div className="flex flex-wrap gap-2">{headerActions}</div> : null}
-      </div>
-      {rows.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-200 bg-white/50 p-4 text-center text-sm text-muted-foreground">
-          {emptyMessage}
-        </p>
-      ) : (
-        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-          <Table>
-            <TableHeader>
-              <TableRow className={greyed ? "bg-slate-50" : undefined}>
-                {canUpload ? <TableHead className="w-10">Include</TableHead> : null}
-                <TableHead>Guest</TableHead>
-                <TableHead>Check-in</TableHead>
-                <TableHead>Check-out</TableHead>
-                <TableHead>Channel</TableHead>
-                <TableHead className="text-right">Payout</TableHead>
-                <TableHead className="text-right">Cleaning</TableHead>
-                <TableHead>CSV</TableHead>
-                <TableHead>Paid out</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((b) => {
-                const paid = Boolean(b.owner_statement_id)
-                return (
-                  <TableRow key={b.id} className={greyed ? "bg-slate-50/80" : undefined}>
-                    {canUpload ? (
-                      <TableCell>
-                        {includeMode === "next-month" ? (
-                          paid ? (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          ) : (
-                            <input
-                              type="checkbox"
-                              disabled
-                              className="size-4 cursor-not-allowed rounded border-slate-300 opacity-40"
-                              title="Check-in is in a future month — switch the period above when you generate that statement."
-                              aria-label={`${b.guest_name} cannot be added to this statement period`}
-                            />
-                          )
-                        ) : paid ? (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        ) : (
-                          <input
-                            type="checkbox"
-                            className="size-4 rounded border-slate-300"
-                            checked={selectedIds.has(b.id)}
-                            onChange={() => onToggle(b.id)}
-                            aria-label={`Include ${b.guest_name} in statement`}
-                          />
-                        )}
-                      </TableCell>
-                    ) : null}
-                    <TableCell className="max-w-[200px]">
-                      <button
-                        type="button"
-                        className="max-w-full cursor-pointer text-left font-medium text-slate-900 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={() => onOpenDetail(b)}
-                      >
-                        {b.guest_name}
-                      </button>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {format(parseISO(b.check_in), "d MMM yyyy")}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {format(parseISO(b.check_out), "d MMM yyyy")}
-                    </TableCell>
-                    <TableCell>{formatChannelLabel(b.channel_name, b.source)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatMoneyCell(b.total_payout)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatMoneyCell(b.cleaning_fee)}</TableCell>
-                    <TableCell>
-                      {b.csv_imported_at ? (
-                        <Badge variant="outline" className="font-normal">
-                          CSV
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {paid ? (
-                        <Badge className="bg-emerald-100 font-normal text-emerald-900 hover:bg-emerald-100">
-                          Paid
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="font-normal">
-                          Open
-                        </Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function formatMoneyCell(s: string | null | undefined): string {
-  if (s == null || s === "") return "—"
-  const n = Number(s)
-  if (!Number.isFinite(n)) return s
-  return new Intl.NumberFormat("en-ZA", {
-    style: "currency",
-    currency: "ZAR",
-    maximumFractionDigits: 2,
-  }).format(n)
-}
-
 const PdfViewer = dynamic(
   () => import("@/components/shared/pdf-viewer").then((module) => module.PdfViewer),
   { ssr: false, loading: () => null }
 )
-
-function formatMonthYear(month: number, year: number) {
-  return new Date(year, month - 1, 1).toLocaleString("en-ZA", {
-    month: "long",
-    year: "numeric",
-  })
-}
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-ZA", {
@@ -311,6 +147,7 @@ export function StatementsList({
   propertyId,
   propertyName,
   propertyCommissionPercent,
+  welcomePackFeePerBooking,
   statements,
   userRole,
   bookings,
@@ -611,10 +448,10 @@ export function StatementsList({
             </div>
 
             <StatementBookingSubsection
-              title={`Check-in ${formatMonthYear(m, y)}`}
+              title={`Check-in ${formatStatementMonthYear(m, y)}`}
               description="Primary stays for the selected statement month."
               rows={displayBookings}
-              canUpload={canUpload}
+              canSelect={canUpload}
               selectedIds={statementTabSelectedIds}
               onToggle={toggleTabBookingSelect}
               onOpenDetail={setDetailBooking}
@@ -624,10 +461,10 @@ export function StatementsList({
 
             {prevPeriod ? (
               <StatementBookingSubsection
-                title={`Previous month — check-in ${formatMonthYear(prevPeriod.month, prevPeriod.year)}`}
+                title={`Previous month — check-in ${formatStatementMonthYear(prevPeriod.month, prevPeriod.year)}`}
                 description="Optional carry-in: include these on this period’s statement when payout aligns with the month above (e.g. late check-in in the prior month)."
                 rows={displayBookingsPrev}
-                canUpload={canUpload}
+                canSelect={canUpload}
                 selectedIds={statementTabSelectedIds}
                 onToggle={toggleTabBookingSelect}
                 onOpenDetail={setDetailBooking}
@@ -646,10 +483,10 @@ export function StatementsList({
 
             {nextPeriod ? (
               <StatementBookingSubsection
-                title={`Next month — check-in ${formatMonthYear(nextPeriod.month, nextPeriod.year)}`}
+                title={`Next month — check-in ${formatStatementMonthYear(nextPeriod.month, nextPeriod.year)}`}
                 description="Upcoming stays for planning. To add them to a statement, change the month/year filters to that period — they cannot be attached to the current statement month."
                 rows={displayBookingsNext}
-                canUpload={canUpload}
+                canSelect={canUpload}
                 selectedIds={statementTabSelectedIds}
                 onToggle={toggleTabBookingSelect}
                 onOpenDetail={setDetailBooking}
@@ -663,7 +500,7 @@ export function StatementsList({
 
         <div className="space-y-3 border-t border-slate-200 pt-6">
           <h3 className="text-sm font-semibold text-slate-900">
-            Statements — {formatMonthYear(m, y)}
+            Statements — {formatStatementMonthYear(m, y)}
           </h3>
           {rows.length === 0 ? (
             <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -688,7 +525,7 @@ export function StatementsList({
                 return (
                   <TableRow key={item.id}>
                     <TableCell>
-                      <div className="font-medium">{formatMonthYear(item.month, item.year)}</div>
+                      <div className="font-medium">{formatStatementMonthYear(item.month, item.year)}</div>
                       <div className="mt-1">{statementBadges(item)}</div>
                     </TableCell>
                     <TableCell className="max-w-[240px] truncate">{item.file_name ?? "—"}</TableCell>
@@ -696,14 +533,14 @@ export function StatementsList({
                     <TableCell>{formatDate(item.created_at)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap justify-end gap-2">
-                        {canUpload && isDraftGenerated ? (
+                        {canUpload && item.source === "GENERATED" && (item.status === "DRAFT" || item.status === "FINAL") ? (
                           <Button
                             type="button"
                             variant="secondary"
                             size="sm"
                             onClick={() => openContinueDraft(item)}
                           >
-                            Continue draft
+                            {item.status === "DRAFT" ? "Continue draft" : "Edit statement"}
                           </Button>
                         ) : null}
                         {hasFile ? (
@@ -778,6 +615,7 @@ export function StatementsList({
           propertyId={propertyId}
           propertyName={propertyName}
           propertyCommissionPercent={propertyCommissionPercent}
+          welcomePackFeePerBooking={welcomePackFeePerBooking}
           bookings={bookings}
           receipts={receipts}
           open={generateOpen}

@@ -18,9 +18,16 @@ loadEnv({ path: ".env.local", override: true })
  *
  * Runtime PrismaClient still uses `process.env.DATABASE_URL` in `src/lib/prisma.ts`.
  */
+function isValidPostgresUrl(url: string | undefined): url is string {
+  if (!url) return false
+  const trimmed = url.trim()
+  if (!trimmed || trimmed.includes("<paste")) return false
+  return trimmed.startsWith("postgresql://") || trimmed.startsWith("postgres://")
+}
+
 function resolveDatasourceUrl(): string | undefined {
   const migrateExplicit = process.env.MIGRATE_DATABASE_URL?.trim()
-  if (migrateExplicit) return migrateExplicit
+  if (isValidPostgresUrl(migrateExplicit)) return migrateExplicit
 
   const pooled = process.env.DATABASE_URL?.trim()
   const direct = process.env.DIRECT_URL?.trim()
@@ -28,9 +35,12 @@ function resolveDatasourceUrl(): string | undefined {
   const usePooledForCli = ["1", "true", "yes"].includes(
     (process.env.PRISMA_CLI_USE_DATABASE_URL ?? "").trim().toLowerCase()
   )
-  if (usePooledForCli && pooled) return pooled
+  if (usePooledForCli && isValidPostgresUrl(pooled)) return pooled
 
-  return direct || pooled
+  if (isValidPostgresUrl(direct)) return direct
+  if (isValidPostgresUrl(pooled)) return pooled
+
+  return undefined
 }
 
 export default defineConfig({

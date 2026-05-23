@@ -17,7 +17,7 @@ type SidebarProps = {
 const links = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Properties", href: "/dashboard/properties", icon: Building2 },
-  { label: "Owners", href: "/dashboard/owners", icon: Users },
+  { label: "Clients", href: "/clients", icon: Users },
 ]
 
 const canManageImports = (role: string | null) =>

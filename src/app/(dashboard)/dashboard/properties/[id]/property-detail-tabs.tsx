@@ -21,6 +21,7 @@ export async function PropertyDetailTabs({
         airbnb_listing_url: true,
         booking_com_listing_url: true,
         right_stay_commission_percent: true,
+        welcome_pack_fee: true,
         uplisting_id: true,
         owner: {
           select: {
@@ -228,6 +229,9 @@ export async function PropertyDetailTabs({
         property.right_stay_commission_percent != null
           ? Number(property.right_stay_commission_percent)
           : null
+      }
+      welcomePackFeePerBooking={
+        property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
       }
       uplistingLinked={Boolean(property.uplisting_id?.trim())}
     />

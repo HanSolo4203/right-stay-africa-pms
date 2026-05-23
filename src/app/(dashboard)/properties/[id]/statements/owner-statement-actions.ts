@@ -5,6 +5,10 @@ import { revalidatePath } from "next/cache"
 import { BookingStatus, StatementSource, StatementStatus } from "@prisma/client"
 import { z } from "zod"
 import { getUser } from "@/lib/auth/get-user"
+import {
+  buildAutomaticExpenseManualLines,
+  mergeManualLinesWithAutomatic,
+} from "@/lib/clients/automatic-statement-expenses"
 import { buildSnapshotV1 } from "@/lib/owner-statement/compute"
 import { renderOwnerStatementPdf } from "@/lib/owner-statement/render-pdf"
 import { checkInAllowedOnOwnerStatement } from "@/lib/owner-statement/statement-eligibility"
@@ -67,7 +71,8 @@ function revalidateStatementPaths(propertyId: string) {
 
 async function buildSnapshotFromPayload(
   payload: OwnerStatementPayloadInput,
-  propertyCommission: number | null
+  propertyCommission: number | null,
+  welcomePackFeePerBooking: number
 ): Promise<OwnerStatementSnapshotV1> {
   const bookings = await prisma.booking.findMany({
     where: {
@@ -82,6 +87,7 @@ async function buildSnapshotFromPayload(
       channel_name: true,
       source: true,
       accommodation_total: true,
+      gross_revenue: true,
       discount: true,
       extra_guest_charge: true,
       cleaning_fee: true,
@@ -165,6 +171,7 @@ async function buildSnapshotFromPayload(
       num_nights: numNights,
       channel_label: getAnalyticsChannelLabel(b.channel_name, b.source),
       accommodation_total: num(b.accommodation_total),
+      gross_revenue: num(b.gross_revenue) > 0 ? num(b.gross_revenue) : undefined,
       discount: num(b.discount),
       extra_guest_charge: num(b.extra_guest_charge),
       cleaning_fee: num(b.cleaning_fee),
@@ -178,13 +185,22 @@ async function buildSnapshotFromPayload(
     }
   })
 
+  const automaticLines = buildAutomaticExpenseManualLines(
+    snapshotBookings.map((b) => ({
+      id: b.id,
+      guestName: b.guest_name,
+      cleaningFee: b.cleaning_fee,
+    })),
+    welcomePackFeePerBooking
+  )
+
   return buildSnapshotV1({
     month: payload.month,
     year: payload.year,
     commissionPercentProperty: propertyCommission,
     commissionPercentOverride: payload.commissionPercentOverride ?? null,
     bookings: snapshotBookings,
-    manualLines: payload.manualLines,
+    manualLines: mergeManualLinesWithAutomatic(payload.manualLines, automaticLines),
     receiptLines,
   })
 }
@@ -206,7 +222,7 @@ export async function saveOwnerStatementDraft(raw: unknown) {
 
   const property = await prisma.property.findUnique({
     where: { id: payload.propertyId },
-    select: { right_stay_commission_percent: true },
+    select: { right_stay_commission_percent: true, welcome_pack_fee: true },
   })
   if (!property) throw new Error("Property not found.")
 
@@ -214,10 +230,12 @@ export async function saveOwnerStatementDraft(raw: unknown) {
     property.right_stay_commission_percent != null
       ? Number(property.right_stay_commission_percent)
       : null
+  const welcomePack =
+    property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
 
   let snapshot: OwnerStatementSnapshotV1
   try {
-    snapshot = await buildSnapshotFromPayload(payload, commissionProp)
+    snapshot = await buildSnapshotFromPayload(payload, commissionProp, welcomePack)
   } catch (e) {
     console.error("[saveOwnerStatementDraft] buildSnapshot", e)
     throw e
@@ -270,6 +288,57 @@ export async function saveOwnerStatementDraft(raw: unknown) {
   return { statementId: created.id }
 }
 
+export async function previewOwnerStatementPdf(raw: unknown): Promise<{
+  pdfBase64: string
+  fileName: string
+}> {
+  await assertCanManageStatements()
+  const payload = ownerStatementPayloadBaseSchema.parse(raw)
+
+  if (payload.bookingIds.length === 0) {
+    throw new Error("Select at least one booking to preview.")
+  }
+
+  const property = await prisma.property.findUnique({
+    where: { id: payload.propertyId },
+    select: {
+      name: true,
+      address: true,
+      city: true,
+      suburb: true,
+      right_stay_commission_percent: true,
+      welcome_pack_fee: true,
+      owner: { select: { full_name: true } },
+    },
+  })
+  if (!property) throw new Error("Property not found.")
+
+  const commissionProp =
+    property.right_stay_commission_percent != null
+      ? Number(property.right_stay_commission_percent)
+      : null
+  const welcomePack =
+    property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
+
+  const snapshot = await buildSnapshotFromPayload(payload, commissionProp, welcomePack)
+
+  const buffer = await renderOwnerStatementPdf(snapshot, {
+    propertyName: property.name,
+    propertyAddressLine: [property.address, property.suburb, property.city].filter(Boolean).join(", "),
+    ownerName: property.owner?.full_name ?? null,
+    isFinal: false,
+  })
+
+  const safeSlug = property.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48)
+  const fileName = `Preview-Owner-Statement_${payload.year}-${String(payload.month).padStart(2, "0")}_${safeSlug || "property"}.pdf`
+
+  return { pdfBase64: buffer.toString("base64"), fileName }
+}
+
 export async function finalizeOwnerStatement(raw: unknown) {
   await assertCanManageStatements()
   const payload = ownerStatementPayloadBaseSchema.parse(raw)
@@ -286,6 +355,7 @@ export async function finalizeOwnerStatement(raw: unknown) {
       city: true,
       suburb: true,
       right_stay_commission_percent: true,
+      welcome_pack_fee: true,
       owner: { select: { full_name: true } },
     },
   })
@@ -295,8 +365,10 @@ export async function finalizeOwnerStatement(raw: unknown) {
     property.right_stay_commission_percent != null
       ? Number(property.right_stay_commission_percent)
       : null
+  const welcomePack =
+    property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
 
-  const snapshot = await buildSnapshotFromPayload(payload, commissionProp)
+  const snapshot = await buildSnapshotFromPayload(payload, commissionProp, welcomePack)
 
   const duplicateFinal = await prisma.statement.findFirst({
     where: {
@@ -307,7 +379,7 @@ export async function finalizeOwnerStatement(raw: unknown) {
       status: StatementStatus.FINAL,
     },
   })
-  if (duplicateFinal) {
+  if (duplicateFinal && duplicateFinal.id !== payload.statementId) {
     throw new Error("A finalized generated statement already exists for this month.")
   }
 
@@ -337,16 +409,16 @@ export async function finalizeOwnerStatement(raw: unknown) {
     let statementId: string
 
     if (payload.statementId) {
-      const draft = await tx.statement.findFirst({
+      const existing = await tx.statement.findFirst({
         where: {
           id: payload.statementId,
           property_id: payload.propertyId,
           source: StatementSource.GENERATED,
-          status: StatementStatus.DRAFT,
+          status: { in: [StatementStatus.DRAFT, StatementStatus.FINAL] },
         },
       })
-      if (!draft) {
-        throw new Error("Draft statement not found.")
+      if (!existing) {
+        throw new Error("Statement not found.")
       }
       await tx.statement.update({
         where: { id: payload.statementId },
@@ -376,6 +448,14 @@ export async function finalizeOwnerStatement(raw: unknown) {
       statementId = created.id
     }
 
+    await tx.booking.updateMany({
+      where: {
+        property_id: payload.propertyId,
+        owner_statement_id: statementId,
+        id: { notIn: payload.bookingIds },
+      },
+      data: { owner_statement_id: null },
+    })
     await tx.booking.updateMany({
       where: { id: { in: payload.bookingIds }, property_id: payload.propertyId },
       data: { owner_statement_id: statementId },

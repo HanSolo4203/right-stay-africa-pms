@@ -8,8 +8,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   deleteOwnerStatementDraft,
   finalizeOwnerStatement,
+  previewOwnerStatementPdf,
   saveOwnerStatementDraft,
 } from "@/app/(dashboard)/properties/[id]/statements/owner-statement-actions"
+import { PdfViewer } from "@/components/shared/pdf-viewer"
 import type { BookingListRow } from "@/components/bookings/booking-list"
 import { formatChannelLabel } from "@/components/bookings/booking-list"
 import {
@@ -43,6 +45,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { toast } from "@/components/ui/toast"
+import {
+  buildAutomaticExpenseManualLines,
+  filterUserManualLines,
+  mergeManualLinesWithAutomatic,
+} from "@/lib/clients/automatic-statement-expenses"
 import { buildSnapshotV1, coerceOwnerStatementManualLine, computeExpenses } from "@/lib/owner-statement/compute"
 import { formatMoneyZar } from "@/lib/owner-statement/format-money"
 import {
@@ -109,6 +116,7 @@ export type GenerateOwnerStatementModalProps = {
   onOpenChange: (open: boolean) => void
   propertyName: string
   propertyCommissionPercent: number | null
+  welcomePackFeePerBooking?: number
   bookings: BookingListRow[]
   receipts: Array<{
     id: string
@@ -136,6 +144,7 @@ export function GenerateOwnerStatementModal({
   onOpenChange,
   propertyName,
   propertyCommissionPercent,
+  welcomePackFeePerBooking = 0,
   bookings,
   receipts,
   initialEdit,
@@ -144,6 +153,10 @@ export function GenerateOwnerStatementModal({
 }: GenerateOwnerStatementModalProps) {
   const router = useRouter()
   const [isSaving, setIsSaving] = useState(false)
+  const [isPreviewing, setIsPreviewing] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState("")
+  const [previewFileName, setPreviewFileName] = useState("")
   const currentYear = new Date().getFullYear()
   const yearOptions = useMemo(() => Array.from({ length: 6 }, (_, i) => currentYear - i), [currentYear])
 
@@ -169,7 +182,9 @@ export function GenerateOwnerStatementModal({
       setSelectedIds(new Set(snap.bookingIds))
       setManualLines(
         snap.manualLines.length > 0
-          ? snap.manualLines.map((row) => coerceOwnerStatementManualLine(row))
+          ? filterUserManualLines(
+              snap.manualLines.map((row) => coerceOwnerStatementManualLine(row))
+            )
           : []
       )
       setDraftStatementId(statementId)
@@ -295,6 +310,10 @@ export function GenerateOwnerStatementModal({
         num_nights: numNights,
         channel_label: formatChannelLabel(b.channel_name, b.source),
         accommodation_total: numFromString(b.accommodation_total),
+        gross_revenue: (() => {
+          const g = numFromString(b.gross_revenue)
+          return g > 0 ? g : undefined
+        })(),
         discount: numFromString(b.discount),
         extra_guest_charge: numFromString(b.extra_guest_charge),
         cleaning_fee: numFromString(b.cleaning_fee),
@@ -323,13 +342,22 @@ export function GenerateOwnerStatementModal({
       }
     })
 
+    const automaticLines = buildAutomaticExpenseManualLines(
+      bookingSnapshots.map((b) => ({
+        id: b.id,
+        guestName: b.guest_name,
+        cleaningFee: b.cleaning_fee,
+      })),
+      welcomePackFeePerBooking
+    )
+
     return buildSnapshotV1({
       month: m,
       year: y,
       commissionPercentProperty: propertyCommissionPercent,
       commissionPercentOverride: overrideValid && overrideNum != null ? overrideNum : null,
       bookings: bookingSnapshots,
-      manualLines,
+      manualLines: mergeManualLinesWithAutomatic(manualLines, automaticLines),
       receiptLines,
     })
   }, [
@@ -337,6 +365,7 @@ export function GenerateOwnerStatementModal({
     m,
     y,
     propertyCommissionPercent,
+    welcomePackFeePerBooking,
     overrideNum,
     overrideValid,
     manualLines,
@@ -453,6 +482,41 @@ export function GenerateOwnerStatementModal({
         }
       })
       .finally(() => setIsSaving(false))
+  }
+
+  const onPreviewPdf = () => {
+    if (!overrideValid) {
+      toast.error("Commission override must be between 0 and 100.")
+      return
+    }
+    if (selectedBookingsForStatement.length === 0) {
+      toast.error("Select at least one booking to preview.")
+      return
+    }
+    setIsPreviewing(true)
+    const timeout = 60_000
+    const previewPromise = previewOwnerStatementPdf(buildPayload())
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out. Please try again.")), timeout)
+    )
+    Promise.race([previewPromise, timeoutPromise])
+      .then(({ pdfBase64, fileName }) => {
+        const bytes = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0))
+        const blob = new Blob([bytes], { type: "application/pdf" })
+        const url = URL.createObjectURL(blob)
+        if (previewUrl) URL.revokeObjectURL(previewUrl)
+        setPreviewUrl(url)
+        setPreviewFileName(fileName)
+        setPreviewOpen(true)
+      })
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : "Failed to generate preview"
+        toast.error(message)
+        if (process.env.NODE_ENV === "development") {
+          console.error("[Preview PDF]", e)
+        }
+      })
+      .finally(() => setIsPreviewing(false))
   }
 
   const onFinalize = () => {
@@ -604,6 +668,13 @@ export function GenerateOwnerStatementModal({
                   </Select>
                 </div>
               </div>
+
+              {welcomePackFeePerBooking > 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Welcome pack: {formatMoneyZar(welcomePackFeePerBooking)} per selected booking (from property
+                  settings), added automatically under additional expenses.
+                </p>
+              ) : null}
 
               <div className="space-y-2">
                 <Label>Right Stay commission (%)</Label>
@@ -952,33 +1023,29 @@ export function GenerateOwnerStatementModal({
                 <h3 className="mb-3 text-sm font-semibold text-slate-900">Preview</h3>
                 <dl className="grid gap-2 text-sm sm:grid-cols-2">
                   <div className="flex justify-between gap-2">
-                    <dt className="text-muted-foreground">Total payout</dt>
-                    <dd className="font-medium tabular-nums">{formatMoneyZar(snapshotPreview.totals.totalPayout)}</dd>
+                    <dt className="text-muted-foreground">Revenue</dt>
+                    <dd className="font-medium tabular-nums">{formatMoneyZar(snapshotPreview.totals.totalGross)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Less: Booking fees</dt>
+                    <dd className="font-medium tabular-nums">−{formatMoneyZar(snapshotPreview.totals.totalBookingFees ?? 0)}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
                     <dt className="text-muted-foreground">
-                      Commission ({snapshotPreview.commissionPercentEffective.toFixed(2)}%)
+                      Less: Management fees ({snapshotPreview.commissionPercentEffective.toFixed(2)}%)
                     </dt>
-                    <dd className="font-medium tabular-nums">−{formatMoneyZar(snapshotPreview.totals.rsaCommission)}</dd>
-                  </div>
-                  <div className="sm:col-span-2 space-y-1 rounded-md border border-slate-200 bg-white p-3">
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-muted-foreground">Cleaning (CSV)</dt>
-                      <dd className="font-medium tabular-nums">−{formatMoneyZar(snapshotPreview.totals.totalCleaning)}</dd>
-                    </div>
-                    {cleaningFrequencySummary.n > 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        {cleaningFrequencySummary.nonZero} non-zero fee
-                        {cleaningFrequencySummary.nonZero === 1 ? "" : "s"} across{" "}
-                        {cleaningFrequencySummary.n} selected stay
-                        {cleaningFrequencySummary.n === 1 ? "" : "s"} (per booking from import).
-                      </p>
-                    ) : null}
+                    <dd className="font-medium tabular-nums">−{formatMoneyZar(snapshotPreview.totals.totalManagementFees)}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-muted-foreground">Other expenses</dt>
+                    <dt className="text-muted-foreground">Less: Expenses</dt>
                     <dd className="font-medium tabular-nums">−{formatMoneyZar(snapshotPreview.totals.otherExpenses)}</dd>
                   </div>
+                  {snapshotPreview.totals.totalPayout > 0 ? (
+                    <div className="flex justify-between gap-2 text-muted-foreground sm:col-span-2">
+                      <dt>Bookings payout (OTA, reference)</dt>
+                      <dd className="tabular-nums">{formatMoneyZar(snapshotPreview.totals.totalPayout)}</dd>
+                    </div>
+                  ) : null}
                   {previewExpenseLines.length > 0 ? (
                     <div className="sm:col-span-2 mt-2 overflow-x-auto rounded-md border border-slate-200 bg-white">
                       <Table className="min-w-[520px] text-sm">
@@ -1046,12 +1113,37 @@ export function GenerateOwnerStatementModal({
             <Button type="button" variant="secondary" disabled={isSaving} onClick={onSaveDraft}>
               {isSaving ? "Saving…" : "Save draft"}
             </Button>
-            <Button type="button" disabled={isSaving} onClick={onFinalize}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSaving || isPreviewing}
+              onClick={onPreviewPdf}
+            >
+              {isPreviewing ? "Generating…" : "Preview PDF"}
+            </Button>
+            <Button type="button" disabled={isSaving || isPreviewing} onClick={onFinalize}>
               Finalize & PDF
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {previewUrl ? (
+        <PdfViewer
+          signedUrl={previewUrl}
+          fileName={previewFileName || "Owner-Statement-Preview.pdf"}
+          open={previewOpen}
+          onOpenChange={(nextOpen) => {
+            setPreviewOpen(nextOpen)
+            if (!nextOpen && previewUrl) {
+              URL.revokeObjectURL(previewUrl)
+              setPreviewUrl("")
+              setPreviewFileName("")
+            }
+          }}
+          hideTrigger
+        />
+      ) : null}
 
       <AlertDialog open={finalizeOpen} onOpenChange={setFinalizeOpen}>
         <AlertDialogContent>

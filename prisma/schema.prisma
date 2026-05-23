@@ -60,6 +60,11 @@ enum StatementStatus {
   FINAL
 }
 
+enum ClientStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 model User {
   id         String   @id @default(uuid())
   email      String   @unique
@@ -91,16 +96,59 @@ model Property {
   last_synced_at  DateTime?
   sync_enabled    Boolean        @default(true)
   right_stay_commission_percent Decimal? @db.Decimal(5, 2)
+  management_fee_type           String   @default("percentage")
+  welcome_pack_fee              Decimal? @db.Decimal(10, 2)
+  client_id       String?
   created_at      DateTime       @default(now())
   updated_at      DateTime       @updatedAt
 
-  owner         Owner?
-  bookings      Booking[]
-  statements    Statement[]
-  receipts      Receipt[]
-  photos        Photo[]
-  contracts     Contract[]
-  info_guide    InfoGuide?
+  client             Client?             @relation(fields: [client_id], references: [id], onDelete: SetNull)
+  owner              Owner?
+  bookings           Booking[]
+  statements         Statement[]
+  receipts           Receipt[]
+  photos             Photo[]
+  contracts          Contract[]
+  info_guide         InfoGuide?
+  statement_expenses StatementExpense[]
+}
+
+model Client {
+  id              String       @id @default(uuid())
+  name            String
+  email           String
+  phone           String?
+  status          ClientStatus @default(ACTIVE)
+  bank_name       String?
+  account_holder  String?
+  account_number  String?
+  branch_code     String?
+  account_type    String?
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  properties         Property[]
+  statement_expenses StatementExpense[]
+
+  @@unique([email])
+}
+
+model StatementExpense {
+  id          String   @id @default(cuid())
+  client_id   String
+  property_id String
+  month       Int
+  year        Int
+  description String
+  qty         Int      @default(1)
+  unit_price  Decimal  @db.Decimal(10, 2)
+  total       Decimal  @db.Decimal(10, 2)
+  created_at  DateTime @default(now())
+
+  client   Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+
+  @@index([client_id, property_id, month, year])
 }
 
 model Owner {

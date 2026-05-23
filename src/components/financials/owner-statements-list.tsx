@@ -42,6 +42,7 @@ type OwnerStatementsListProps = {
   propertyId: string
   propertyName: string
   propertyCommissionPercent: number | null
+  welcomePackFeePerBooking: number
   statements: OwnerStatementItem[]
   userRole: "SUPER_ADMIN" | "PROPERTY_MANAGER" | "OWNER" | null
   bookings: BookingListRow[]
@@ -103,6 +104,7 @@ export function OwnerStatementsList({
   propertyId,
   propertyName,
   propertyCommissionPercent,
+  welcomePackFeePerBooking,
   statements,
   userRole,
   bookings,
@@ -222,7 +224,6 @@ export function OwnerStatementsList({
               <TableBody>
                 {ownerStatements.map((item) => {
                   const hasFile = Boolean(item.file_url)
-                  const isDraft = item.source === "GENERATED" && item.status === "DRAFT"
                   return (
                     <TableRow key={item.id}>
                       <TableCell>
@@ -234,14 +235,14 @@ export function OwnerStatementsList({
                       <TableCell>{formatDate(item.created_at)}</TableCell>
                       <TableCell>
                         <div className="flex flex-wrap justify-end gap-2">
-                          {canManage && isDraft ? (
+                          {canManage && item.source === "GENERATED" && (item.status === "DRAFT" || item.status === "FINAL") ? (
                             <Button
                               type="button"
                               variant="secondary"
                               size="sm"
                               onClick={() => openContinueDraft(item)}
                             >
-                              Continue draft
+                              {item.status === "DRAFT" ? "Continue draft" : "Edit statement"}
                             </Button>
                           ) : null}
                           {hasFile ? (
@@ -307,6 +308,7 @@ export function OwnerStatementsList({
           propertyId={propertyId}
           propertyName={propertyName}
           propertyCommissionPercent={propertyCommissionPercent}
+          welcomePackFeePerBooking={welcomePackFeePerBooking}
           bookings={bookings}
           receipts={receipts}
           open={generateOpen}

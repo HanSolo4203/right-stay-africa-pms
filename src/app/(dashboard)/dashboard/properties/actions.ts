@@ -40,6 +40,10 @@ function normalizePayload(formData: PropertyFormValues) {
       formData.right_stay_commission_percent != null && Number.isFinite(formData.right_stay_commission_percent)
         ? formData.right_stay_commission_percent
         : null,
+    welcome_pack_fee:
+      formData.welcome_pack_fee != null && Number.isFinite(formData.welcome_pack_fee)
+        ? formData.welcome_pack_fee
+        : null,
   }
 }
 
