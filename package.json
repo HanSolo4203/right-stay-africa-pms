@@ -12,7 +12,8 @@
     "dev:clean": "sh -c 'lsof -ti:3000,3001 | xargs kill -9 2>/dev/null || true; rm -rf .next' && npm run dev",
     "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "npx tsx --test src/lib/clients/portfolio-period-summary.test.ts src/lib/statement-booking-proration.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -80,8 +80,10 @@ model Property {
   address         String
   suburb          String?
   city            String
-  unit_number     String?
-  building_name  String?
+  unit_number              String?
+  building_name            String?
+  building_manager_email   String?
+  building_manager_phone   String?
   type            PropertyType   @default(APARTMENT)
   bedrooms        Int            @default(1)
   bathrooms       Int            @default(1)
@@ -111,6 +113,7 @@ model Property {
   contracts          Contract[]
   info_guide         InfoGuide?
   statement_expenses StatementExpense[]
+  statement_booking_overrides StatementBookingOverride[]
 }
 
 model Client {
@@ -134,16 +137,18 @@ model Client {
 }
 
 model StatementExpense {
-  id          String   @id @default(cuid())
-  client_id   String
-  property_id String
-  month       Int
-  year        Int
-  description String
-  qty         Int      @default(1)
-  unit_price  Decimal  @db.Decimal(10, 2)
-  total       Decimal  @db.Decimal(10, 2)
-  created_at  DateTime @default(now())
+  id               String   @id @default(cuid())
+  client_id        String
+  property_id      String
+  month            Int
+  year             Int
+  description      String
+  qty              Int      @default(1)
+  unit_price       Decimal  @db.Decimal(10, 2)
+  total            Decimal  @db.Decimal(10, 2)
+  add_ten_percent  Boolean  @default(false)
+  expense_category String?
+  created_at       DateTime @default(now())
 
   client   Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
   property Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
@@ -205,8 +210,11 @@ model Booking {
   total_payout           Decimal?  @db.Decimal(10, 2)
   csv_imported_at      DateTime?
   csv_row_hash         String?
+  is_manual_override   Boolean       @default(false)
+  manual_monthly_note  String?
   owner_statement_id   String?
   owner_statement      Statement? @relation(fields: [owner_statement_id], references: [id], onDelete: SetNull)
+  statement_overrides  StatementBookingOverride[]
   created_at  DateTime      @default(now())
   updated_at  DateTime      @updatedAt
 
@@ -242,6 +250,32 @@ model Statement {
   snapshot    Json?
   created_at  DateTime @default(now())
   bookings    Booking[]
+}
+
+model StatementBookingOverride {
+  id                     String   @id @default(cuid())
+  booking_id             String
+  booking                Booking  @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  property_id            String
+  property               Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  month                  Int
+  year                   Int
+  note                   String
+  accommodation_total    Decimal? @db.Decimal(10, 2)
+  discount               Decimal? @db.Decimal(10, 2)
+  extra_charges          Decimal? @db.Decimal(10, 2)
+  cleaning_fee           Decimal? @db.Decimal(10, 2)
+  upsells                Decimal? @db.Decimal(10, 2)
+  booking_taxes          Decimal? @db.Decimal(10, 2)
+  channel_commission     Decimal? @db.Decimal(10, 2)
+  total_management_fee   Decimal? @db.Decimal(10, 2)
+  payment_processing_fee Decimal? @db.Decimal(10, 2)
+  total_payout           Decimal? @db.Decimal(10, 2)
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+
+  @@unique([booking_id, month, year])
+  @@index([property_id, month, year])
 }
 
 model Receipt {
@@ -351,4 +385,29 @@ model UplistingSyncLog {
   error_message  String?
   started_at     DateTime @default(now())
   completed_at   DateTime?
+}
+
+model CompanySettings {
+  id                  String   @id @default(cuid())
+  companyName         String   @default("Right Stay Africa")
+  tagline             String?
+  registrationNumber  String?
+  vatNumber           String?
+  email               String?
+  phone               String?
+  whatsapp            String?
+  address             String?
+  website             String?
+  instagramUrl        String?
+  facebookUrl         String?
+  linkedinUrl         String?
+  twitterUrl          String?
+  statementFooterNote String?
+  bankName            String?
+  accountHolder       String?
+  accountNumber       String?
+  branchCode          String?
+  accountType         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }

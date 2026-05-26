@@ -3,8 +3,13 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import { BookingStatus, ClientStatus, StatementSource, StatementStatus } from "@prisma/client"
 import { buildSnapshotV1 } from "@/lib/owner-statement/compute"
+import {
+  applyPreviewTotalsToStatement,
+  buildOwnerStatementPreview,
+} from "@/lib/owner-statement/statement-preview"
+import { getCompanySettingsForPdf } from "@/lib/company-settings"
 import { renderOwnerStatementPdf } from "@/lib/owner-statement/render-pdf"
-import { checkInAllowedOnOwnerStatement } from "@/lib/owner-statement/statement-eligibility"
+import { bookingHasNightsInCalendarMonth } from "@/lib/owner-statement/statement-eligibility"
 import {
   isOwnerStatementSnapshotV1,
   type OwnerStatementSnapshotV1,
@@ -13,20 +18,29 @@ import { prisma } from "@/lib/prisma"
 import { getAnalyticsChannelLabel } from "@/lib/property-booking-analytics"
 import { expensesToManualLines, loadStatementExpenses } from "@/lib/clients/statement-expenses"
 import { parseManagementFeeType } from "@/lib/clients/management-fee-calculator"
-import { buildAutomaticExpenseManualLines } from "@/lib/clients/automatic-statement-expenses"
+import {
+  assertAutomaticExpenseLinesValid,
+  automaticExpenseItemsFromSnapshot,
+  buildBaseAutomaticExpenseItems,
+  normalizeStatementExpenseItem,
+  reconcileAutomaticExpenses,
+} from "@/lib/clients/automatic-statement-expenses"
+import { statementExpenseItemsToManualLines } from "@/lib/clients/statement-expense-mappers"
 import { serializeStatementBookingRow } from "@/lib/clients/statement-booking-ui"
+import { serializeStatementBookingOverride } from "@/lib/clients/statement-booking-overrides"
 import {
   bookingToSnapshotRow,
   buildPropertyStatement,
   filterBookingsForStatementMonth,
   bookingIdsEligibleForStatementSelection,
   selectBookingIdsForAutoGenerate,
+  allocationsForStatementMonth,
   statementBookingSelect,
   type StatementBookingInput,
 } from "@/lib/statement-calculator"
 import type { StatementExpenseItem } from "@/types/statement"
 import { uploadFile } from "@/lib/supabase/storage"
-import type { ClientStatementSummary } from "@/types/statement"
+import type { ClientStatementSummary, PropertyStatement, StatementBookingOverrideRow } from "@/types/statement"
 
 const STATEMENTS_BUCKET = "documents"
 
@@ -138,7 +152,20 @@ function expenseItems(
     qty: e.qty,
     unitPrice: e.unitPrice,
     total: e.total,
+    addTenPercent: e.addTenPercent,
+    expenseCategory: e.expenseCategory,
   }))
+}
+
+async function loadBookingOverrides(
+  propertyId: string,
+  month: number,
+  year: number
+): Promise<StatementBookingOverrideRow[]> {
+  const rows = await prisma.statementBookingOverride.findMany({
+    where: { property_id: propertyId, month, year },
+  })
+  return rows.map(serializeStatementBookingOverride)
 }
 
 async function propertyToStatement(
@@ -172,6 +199,7 @@ async function propertyToStatement(
     : await loadStatementExpenses(clientId, p.id, month, year)
   const welcomePack =
     p.welcome_pack_fee != null ? Number(p.welcome_pack_fee) : 0
+  const bookingOverrides = await loadBookingOverrides(p.id, month, year)
 
   const snap =
     existing?.snapshot != null && isOwnerStatementSnapshotV1(existing.snapshot)
@@ -196,14 +224,76 @@ async function propertyToStatement(
     existingStatementStatus: existing?.status ?? null,
     hasPdf: Boolean(existing?.file_url),
     isVirtualClient,
+    bookingOverrides,
   })
 
+  const snapAutomatic = snap != null ? automaticExpenseItemsFromSnapshot(snap) : null
+  const automaticExpenses = reconcileAutomaticExpenses(built.automaticExpenses, snapAutomatic)
+
+  const preview = buildOwnerStatementPreview({
+    month,
+    year,
+    commissionPercentProperty: commission,
+    welcomePackFeePerBooking: welcomePack,
+    bookings: editorBookings,
+    manualExpenses: expenseItems(expenses),
+    automaticExpenses,
+    bookingOverrides,
+  })
+  const withTotals = applyPreviewTotalsToStatement(built, preview)
+
   return {
-    ...built,
+    ...withTotals,
+    automaticExpenses,
     existingStatementFileUrl: existing?.file_url ?? null,
     existingStatementFileName: existing?.file_name ?? null,
     bookings: p.bookings.map(serializeStatementBookingRow),
+    statementSnapshot: snap,
+    bookingOverrides,
   }
+}
+
+/** Rebuild live statement totals after override changes (same path as GET /api/clients/statements). */
+export async function rebuildPropertyStatementForPeriod(
+  clientId: string,
+  propertyId: string,
+  month: number,
+  year: number
+): Promise<PropertyStatement> {
+  const { propertyIds, isVirtual } = await resolveClientPropertyIds(clientId)
+  if (!propertyIds.includes(propertyId)) {
+    throw new Error("Property does not belong to this client.")
+  }
+
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: {
+      id: true,
+      name: true,
+      right_stay_commission_percent: true,
+      management_fee_type: true,
+      welcome_pack_fee: true,
+      bookings: {
+        where: { status: { in: [...ACTIVE] } },
+        select: bookingSelect,
+      },
+      statements: {
+        where: { month, year, source: StatementSource.GENERATED },
+        select: {
+          id: true,
+          status: true,
+          file_url: true,
+          file_name: true,
+          snapshot: true,
+        },
+        orderBy: { created_at: "desc" },
+        take: 1,
+      },
+    },
+  })
+  if (!property) throw new Error("Property not found.")
+
+  return propertyToStatement(property, clientId, month, year, isVirtual)
 }
 
 export async function resolveClientPropertyIds(
@@ -230,7 +320,10 @@ async function buildSnapshotForProperty(
   month: number,
   year: number,
   bookingIds: string[],
-  options?: { draftStatementId?: string | null }
+  options?: {
+    draftStatementId?: string | null
+    automaticExpenses?: Array<Pick<StatementExpenseItem, "id" | "description" | "qty" | "unitPrice">>
+  }
 ): Promise<{
   snapshot: OwnerStatementSnapshotV1
   property: {
@@ -238,6 +331,8 @@ async function buildSnapshotForProperty(
     address: string
     city: string
     suburb: string | null
+    unit_number: string | null
+    building_name: string | null
     ownerName: string | null
     commission: number | null
   }
@@ -249,6 +344,8 @@ async function buildSnapshotForProperty(
       address: true,
       city: true,
       suburb: true,
+      unit_number: true,
+      building_name: true,
       right_stay_commission_percent: true,
       management_fee_type: true,
       welcome_pack_fee: true,
@@ -289,9 +386,9 @@ async function buildSnapshotForProperty(
     if (!ACTIVE.has(b.status)) {
       throw new Error(`Booking "${b.guest_name}" is not active for statements.`)
     }
-    if (!checkInAllowedOnOwnerStatement(b.check_in, year, month)) {
+    if (!bookingHasNightsInCalendarMonth(b.check_in, b.check_out, year, month)) {
       throw new Error(
-        `Booking "${b.guest_name}" check-in must fall in the statement month or the previous calendar month.`
+        `Booking "${b.guest_name}" must have occupied nights in the statement month.`
       )
     }
     const draftId = options?.draftStatementId ?? null
@@ -300,19 +397,33 @@ async function buildSnapshotForProperty(
     }
   }
 
+  const baseAutomatic = buildBaseAutomaticExpenseItems(
+    bookings.map((b) => ({
+      id: b.id,
+      guestName: b.guest_name,
+      cleaningFee: Number(b.cleaning_fee ?? 0),
+    })),
+    welcomePack
+  )
+  const automaticItems =
+    options?.automaticExpenses != null
+      ? options.automaticExpenses.map((e) => normalizeStatementExpenseItem(e))
+      : baseAutomatic
+  if (options?.automaticExpenses != null) {
+    assertAutomaticExpenseLinesValid(automaticItems, bookingIds)
+  }
   const manualLines = [
-    ...buildAutomaticExpenseManualLines(
-      bookings.map((b) => ({
-        id: b.id,
-        guestName: b.guest_name,
-        cleaningFee: Number(b.cleaning_fee ?? 0),
-      })),
-      welcomePack
-    ),
+    ...statementExpenseItemsToManualLines(automaticItems),
     ...expensesToManualLines(expenseRows),
   ]
 
-  const snapshotBookings = bookings.map(bookingToSnapshotRow)
+  const bookingOverrides = await loadBookingOverrides(propertyId, month, year)
+  const snapshotBookings = allocationsForStatementMonth(
+    bookings as StatementBookingInput[],
+    year,
+    month,
+    bookingOverrides
+  ).map((a) => bookingToSnapshotRow(a.booking, a))
   const snapshot = buildSnapshotV1({
     month,
     year,
@@ -330,6 +441,8 @@ async function buildSnapshotForProperty(
       address: property.address,
       city: property.city,
       suburb: property.suburb,
+      unit_number: property.unit_number,
+      building_name: property.building_name,
       ownerName: property.owner?.full_name ?? null,
       commission: commissionProp,
     },
@@ -363,6 +476,9 @@ export async function generatePropertyStatement(input: {
   year: number
   bookingIds?: string[]
   statementId?: string | null
+  automaticExpenseLines?: Array<
+    Pick<StatementExpenseItem, "id" | "description" | "qty" | "unitPrice">
+  >
 }): Promise<{
   statementId: string
   snapshot: OwnerStatementSnapshotV1
@@ -429,23 +545,38 @@ export async function generatePropertyStatement(input: {
     throw new Error("Select bookings and use Update & download to change a finalized statement.")
   }
 
+  const automaticExpenseLines = input.automaticExpenseLines?.map((e) =>
+    normalizeStatementExpenseItem(e)
+  )
+
   const { snapshot, property } = await buildSnapshotForProperty(
     input.clientId,
     input.propertyId,
     input.month,
     input.year,
     bookingIds,
-    { draftStatementId: statementIdToUpdate }
+    {
+      draftStatementId: statementIdToUpdate,
+      automaticExpenses: automaticExpenseLines,
+    }
   )
 
-  const buffer = await renderOwnerStatementPdf(snapshot, {
-    propertyName: property.name,
-    propertyAddressLine: [property.address, property.suburb, property.city]
-      .filter(Boolean)
-      .join(", "),
-    ownerName: property.ownerName,
-    isFinal: true,
-  })
+  const companySettings = await getCompanySettingsForPdf()
+
+  const buffer = await renderOwnerStatementPdf(
+    snapshot,
+    {
+      propertyName: property.name,
+      propertyAddressLine: [property.address, property.suburb, property.city]
+        .filter(Boolean)
+        .join(", "),
+      propertyBuildingName: property.building_name ?? null,
+      propertyUnitNumber: property.unit_number ?? null,
+      ownerName: property.ownerName,
+      isFinal: true,
+    },
+    companySettings
+  )
 
   const fileId = randomUUID()
   const storagePath = `properties/${input.propertyId}/statements/owner-statement_${input.year}-${String(input.month).padStart(2, "0")}_${fileId}.pdf`
@@ -514,6 +645,9 @@ export async function savePropertyStatementDraft(input: {
   year: number
   bookingIds: string[]
   statementId?: string | null
+  automaticExpenseLines?: Array<
+    Pick<StatementExpenseItem, "id" | "description" | "qty" | "unitPrice">
+  >
 }): Promise<{ statementId: string }> {
   const { propertyIds } = await resolveClientPropertyIds(input.clientId)
   if (!propertyIds.includes(input.propertyId)) {
@@ -583,13 +717,20 @@ export async function savePropertyStatementDraft(input: {
     }
   }
 
+  const automaticExpenseLines = input.automaticExpenseLines?.map((e) =>
+    normalizeStatementExpenseItem(e)
+  )
+
   const { snapshot } = await buildSnapshotForProperty(
     input.clientId,
     input.propertyId,
     input.month,
     input.year,
     input.bookingIds,
-    { draftStatementId: statementId }
+    {
+      draftStatementId: statementId,
+      automaticExpenses: automaticExpenseLines,
+    }
   )
 
   const monthLabel = new Date(input.year, input.month - 1, 1).toLocaleString("en-ZA", {

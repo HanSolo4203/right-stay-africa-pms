@@ -1,10 +1,14 @@
 import {
   bookingFeesFromRow,
-  bookingGrossFromInput,
   bookingManagementFeeAmount,
 } from "@/lib/clients/statement-financials"
-import type { StatementBookingInput } from "@/lib/statement-calculator"
-import { bookingToSnapshotRow, filterBookingsForStatementMonth } from "@/lib/statement-calculator"
+import {
+  allocationGrossRevenue,
+  allocationsForStatementMonth,
+  bookingToSnapshotRow,
+  filterBookingsForStatementMonth,
+  type StatementBookingInput,
+} from "@/lib/statement-calculator"
 
 export type ManagementFeeType = "percentage" | "fixed_monthly" | "fixed_per_booking"
 
@@ -18,8 +22,9 @@ export function calculateManagementFeeEarned(input: {
   const eligible = filterBookingsForStatementMonth(input.bookings, input.year, input.month, {
     includeAlreadyOnStatement: true,
   })
-  const grossRevenue = eligible.reduce((s, b) => s + bookingGrossFromInput(b), 0)
-  const bookingCount = eligible.length
+  const allocations = allocationsForStatementMonth(eligible, input.year, input.month)
+  const grossRevenue = allocations.reduce((s, a) => s + allocationGrossRevenue(a), 0)
+  const bookingCount = allocations.length
   const rate = Math.max(0, input.rate)
 
   let feeEarned = 0
@@ -32,12 +37,12 @@ export function calculateManagementFeeEarned(input: {
       break
     case "percentage":
     default:
-      feeEarned = eligible.reduce((s, b) => {
-        const row = bookingToSnapshotRow(b)
+      feeEarned = allocations.reduce((s, a) => {
+        const row = bookingToSnapshotRow(a.booking, a)
         return (
           s +
           bookingManagementFeeAmount({
-            revenue: bookingGrossFromInput(b),
+            revenue: allocationGrossRevenue(a),
             bookingFees: bookingFeesFromRow(row),
             csvManagementFee: row.total_management_fee,
             feeType: "percentage",

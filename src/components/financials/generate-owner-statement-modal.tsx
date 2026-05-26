@@ -53,7 +53,12 @@ import {
 import { buildSnapshotV1, coerceOwnerStatementManualLine, computeExpenses } from "@/lib/owner-statement/compute"
 import { formatMoneyZar } from "@/lib/owner-statement/format-money"
 import {
-  checkInAllowedOnOwnerStatement,
+  allocationsForStatementMonth,
+  bookingToSnapshotRow,
+} from "@/lib/statement-calculator"
+import { clientBookingRowToInput } from "@/lib/clients/statement-booking-ui"
+import {
+  bookingHasNightsInCalendarMonth,
   checkInInCalendarMonth,
   previousCalendarMonth,
   receiptYmdInStatementMonth,
@@ -86,22 +91,24 @@ function receiptInMonth(dateStr: string, year: number, month: number): boolean {
   return receiptYmdInStatementMonth(dateStr, year, month)
 }
 
-/** Unreconciled + active, check-in in a specific calendar month. */
+/** Unreconciled + active, with nights in a specific calendar month. */
 function bookingEligibleInMonth(b: BookingListRow, year: number, month: number): boolean {
   if (b.owner_statement_id) return false
   if (!ACTIVE.has(b.status)) return false
-  const d = parseISO(b.check_in)
-  if (Number.isNaN(d.getTime())) return false
-  return checkInInCalendarMonth(d, year, month)
+  const checkIn = parseISO(b.check_in)
+  const checkOut = parseISO(b.check_out)
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) return false
+  return bookingHasNightsInCalendarMonth(checkIn, checkOut, year, month)
 }
 
-/** May appear on this statement: statement month or previous calendar month, unreconciled, active. */
+/** May appear on this statement: nights in period, unreconciled, active. */
 function bookingSelectableForStatement(b: BookingListRow, statementYear: number, statementMonth: number): boolean {
   if (b.owner_statement_id) return false
   if (!ACTIVE.has(b.status)) return false
-  const d = parseISO(b.check_in)
-  if (Number.isNaN(d.getTime())) return false
-  return checkInAllowedOnOwnerStatement(d, statementYear, statementMonth)
+  const checkIn = parseISO(b.check_in)
+  const checkOut = parseISO(b.check_out)
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) return false
+  return bookingHasNightsInCalendarMonth(checkIn, checkOut, statementYear, statementMonth)
 }
 
 function numFromString(s: string | null | undefined): number {
@@ -293,39 +300,12 @@ export function GenerateOwnerStatementModal({
     commissionOverride.trim() === "" || (Number.isFinite(overrideNum) && overrideNum! >= 0 && overrideNum! <= 100)
 
   const snapshotPreview = useMemo(() => {
-    const bookingSnapshots = selectedBookingsForStatement.map((b) => {
-      const checkIn = new Date(b.check_in)
-      const checkOut = new Date(b.check_out)
-      const numNights = Math.max(
-        0,
-        Math.round((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24))
-      )
-      const commission = numFromString(b.commission)
-      const commissionTax = numFromString(b.commission_tax)
-      return {
-        id: b.id,
-        guest_name: b.guest_name,
-        check_in: b.check_in,
-        check_out: b.check_out,
-        num_nights: numNights,
-        channel_label: formatChannelLabel(b.channel_name, b.source),
-        accommodation_total: numFromString(b.accommodation_total),
-        gross_revenue: (() => {
-          const g = numFromString(b.gross_revenue)
-          return g > 0 ? g : undefined
-        })(),
-        discount: numFromString(b.discount),
-        extra_guest_charge: numFromString(b.extra_guest_charge),
-        cleaning_fee: numFromString(b.cleaning_fee),
-        extra_charges: numFromString(b.extra_charges),
-        upsells: numFromString(b.upsells),
-        booking_taxes: numFromString(b.booking_taxes),
-        channel_commission: commission + commissionTax,
-        total_management_fee: numFromString(b.total_management_fee),
-        payment_processing_fee: numFromString(b.payment_processing_fee),
-        total_payout: numFromString(b.total_payout),
-      }
-    })
+    const bookingInputs = selectedBookingsForStatement.map((b) =>
+      clientBookingRowToInput(b as import("@/types/statement").ClientStatementBookingRow)
+    )
+    const bookingSnapshots = allocationsForStatementMonth(bookingInputs, y, m).map((a) =>
+      bookingToSnapshotRow(a.booking, a)
+    )
 
     const receiptSelections = Array.from(selectedReceiptIds).map((id) => ({
       receiptId: id,

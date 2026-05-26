@@ -1,3 +1,4 @@
+import { differenceInDays } from "date-fns"
 import { getDaysInMonth } from "date-fns"
 import type { BookingSource, BookingStatus } from "@prisma/client"
 import { getAnalyticsChannelLabel } from "@/lib/booking-channel-label"
@@ -5,7 +6,7 @@ import { isStatementActiveBookingStatus } from "@/lib/booking-status"
 import type { ManagementFeeType } from "@/lib/clients/management-fee-calculator"
 import {
   bookingFeesFromRow,
-  bookingGrossFromInput,
+  bookingGrossFromSnapshot,
   bookingManagementFeeAmount,
   buildCleaningFeeExpenseLines,
   buildWelcomePackExpenseLines,
@@ -13,14 +14,22 @@ import {
   computeOwnerPayout,
   sumExpenseItems,
 } from "@/lib/clients/statement-financials"
-import { checkInAllowedOnOwnerStatement } from "@/lib/owner-statement/statement-eligibility"
+import {
+  bookingHasNightsInCalendarMonth,
+  calendarYearMonthInTimeZone,
+  nightsByCalendarMonth,
+  STATEMENT_CALENDAR_TIMEZONE,
+} from "@/lib/owner-statement/statement-eligibility"
 import type { OwnerStatementSnapshotBookingV1 } from "@/lib/owner-statement/types"
 import type {
+  MonthlyAllocation,
   PropertyStatement,
   PropertyStatementTotals,
+  StatementBookingOverrideRow,
   StatementExpenseItem,
   StatementLine,
 } from "@/types/statement"
+import { applyOverridesToAllocations } from "@/lib/clients/statement-booking-overrides"
 
 export const statementBookingSelect = {
   id: true,
@@ -45,8 +54,9 @@ export const statementBookingSelect = {
   payment_processing_fee: true,
   total_payout: true,
   gross_revenue: true,
+  is_manual_override: true,
+  manual_monthly_note: true,
 } as const
-
 
 export type StatementBookingInput = {
   id: string
@@ -71,12 +81,192 @@ export type StatementBookingInput = {
   payment_processing_fee: { toString: () => string } | null
   total_payout: { toString: () => string } | null
   gross_revenue: { toString: () => string } | null
+  is_manual_override?: boolean
+  manual_monthly_note?: string | null
 }
 
 function num(v: { toString: () => string } | null | undefined): number {
   if (v == null) return 0
   const n = Number(v.toString())
   return Number.isFinite(n) ? n : 0
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+type BookingFinancials = {
+  accommodation_total: number
+  discount: number
+  extra_guest_charge: number
+  extra_charges: number
+  cleaning_fee: number
+  upsells: number
+  booking_taxes: number
+  channel_commission: number
+  total_management_fee: number
+  payment_processing_fee: number
+  total_payout: number
+  gross_revenue: number
+}
+
+function bookingFinancials(b: StatementBookingInput): BookingFinancials {
+  return {
+    accommodation_total: num(b.accommodation_total),
+    discount: num(b.discount),
+    extra_guest_charge: num(b.extra_guest_charge),
+    extra_charges: num(b.extra_charges),
+    cleaning_fee: num(b.cleaning_fee),
+    upsells: num(b.upsells),
+    booking_taxes: num(b.booking_taxes),
+    channel_commission: round2(num(b.commission) + num(b.commission_tax)),
+    total_management_fee: num(b.total_management_fee),
+    payment_processing_fee: num(b.payment_processing_fee),
+    total_payout: num(b.total_payout),
+    gross_revenue: num(b.gross_revenue),
+  }
+}
+
+function prorateField(total: number, ratio: number): number {
+  return round2(total * ratio)
+}
+
+function applyRatioToFinancials(f: BookingFinancials, ratio: number): BookingFinancials {
+  return {
+    accommodation_total: prorateField(f.accommodation_total, ratio),
+    discount: prorateField(f.discount, ratio),
+    extra_guest_charge: prorateField(f.extra_guest_charge, ratio),
+    extra_charges: prorateField(f.extra_charges, ratio),
+    cleaning_fee: prorateField(f.cleaning_fee, ratio),
+    upsells: prorateField(f.upsells, ratio),
+    booking_taxes: prorateField(f.booking_taxes, ratio),
+    channel_commission: prorateField(f.channel_commission, ratio),
+    total_management_fee: prorateField(f.total_management_fee, ratio),
+    payment_processing_fee: prorateField(f.payment_processing_fee, ratio),
+    total_payout: prorateField(f.total_payout, ratio),
+    gross_revenue: prorateField(f.gross_revenue, ratio),
+  }
+}
+
+/**
+ * Given a booking that spans multiple months, returns an array of monthly
+ * allocations — one entry per calendar month the booking touches — each
+ * containing the pro-rated share of every financial field for that month.
+ *
+ * For single-month bookings, returns a single entry (no change to existing
+ * behaviour). Manual overrides attribute the full booking to checkout month.
+ */
+export function prorateBookingByMonth(booking: StatementBookingInput): MonthlyAllocation[] {
+  const checkIn = booking.check_in
+  const checkOut = booking.check_out
+  const totalNights = differenceInDays(checkOut, checkIn)
+
+  if (totalNights <= 0) return []
+
+  const financials = bookingFinancials(booking)
+
+  if (booking.is_manual_override) {
+    const { year, month } = calendarYearMonthInTimeZone(checkOut, STATEMENT_CALENDAR_TIMEZONE)
+    return [
+      {
+        year,
+        month,
+        nights: totalNights,
+        totalNights,
+        ratio: 1,
+        isProrated: false,
+        ...financials,
+        booking,
+      },
+    ]
+  }
+
+  const months = nightsByCalendarMonth(checkIn, checkOut)
+  if (months.length === 0) return []
+
+  const isProrated = months.length > 1
+
+  return months.map(({ year, month, nights }, index) => {
+    const ratio = nights / totalNights
+    const prorated =
+      index === months.length - 1
+        ? subtractAllocatedFinancials(financials, months.slice(0, -1), totalNights)
+        : applyRatioToFinancials(financials, ratio)
+
+    return {
+      year,
+      month,
+      nights,
+      totalNights,
+      ratio,
+      isProrated,
+      ...prorated,
+      booking,
+    }
+  })
+}
+
+/** Last month slice absorbs rounding remainder so field totals match the booking. */
+function subtractAllocatedFinancials(
+  total: BookingFinancials,
+  priorMonths: Array<{ nights: number }>,
+  totalNights: number
+): BookingFinancials {
+  const prior = priorMonths.map(({ nights }) =>
+    applyRatioToFinancials(total, nights / totalNights)
+  )
+  const sumField = (key: keyof BookingFinancials) =>
+    round2(total[key] - prior.reduce((s, p) => s + p[key], 0))
+
+  return {
+    accommodation_total: sumField("accommodation_total"),
+    discount: sumField("discount"),
+    extra_guest_charge: sumField("extra_guest_charge"),
+    extra_charges: sumField("extra_charges"),
+    cleaning_fee: sumField("cleaning_fee"),
+    upsells: sumField("upsells"),
+    booking_taxes: sumField("booking_taxes"),
+    channel_commission: sumField("channel_commission"),
+    total_management_fee: sumField("total_management_fee"),
+    payment_processing_fee: sumField("payment_processing_fee"),
+    total_payout: sumField("total_payout"),
+    gross_revenue: sumField("gross_revenue"),
+  }
+}
+
+export function allocationsForStatementMonth(
+  bookings: StatementBookingInput[],
+  year: number,
+  month: number,
+  overrides: StatementBookingOverrideRow[] = []
+): MonthlyAllocation[] {
+  const base = bookings
+    .flatMap((b) => prorateBookingByMonth(b))
+    .filter((a) => a.year === year && a.month === month)
+  return applyOverridesToAllocations(base, overrides, month, year)
+}
+
+/** Apply persisted overrides on top of automatic pro-ration. */
+export function getAllocationsWithOverrides(
+  bookings: StatementBookingInput[],
+  month: number,
+  year: number,
+  overrides: StatementBookingOverrideRow[]
+): MonthlyAllocation[] {
+  return allocationsForStatementMonth(bookings, year, month, overrides)
+}
+
+export function allocationGrossRevenue(a: MonthlyAllocation): number {
+  if (a.gross_revenue > 0) return a.gross_revenue
+  return bookingGrossFromSnapshot({
+    gross_revenue: a.gross_revenue,
+    accommodation_total: a.accommodation_total,
+    extra_guest_charge: a.extra_guest_charge,
+    cleaning_fee: a.cleaning_fee,
+    extra_charges: a.extra_charges,
+    upsells: a.upsells,
+    booking_taxes: a.booking_taxes,
+  })
 }
 
 export function filterBookingsForStatementMonth(
@@ -89,11 +279,43 @@ export function filterBookingsForStatementMonth(
   return bookings.filter((b) => {
     if (!isStatementActiveBookingStatus(b.status)) return false
     if (!includeOnStatement && b.owner_statement_id != null) return false
-    return checkInAllowedOnOwnerStatement(b.check_in, year, month)
+    return bookingHasNightsInCalendarMonth(b.check_in, b.check_out, year, month)
   })
 }
 
-export function bookingToSnapshotRow(b: StatementBookingInput): OwnerStatementSnapshotBookingV1 {
+export function bookingToSnapshotRow(
+  b: StatementBookingInput,
+  allocation?: MonthlyAllocation
+): OwnerStatementSnapshotBookingV1 {
+  if (allocation) {
+    const commission = allocation.channel_commission
+    return {
+      id: b.id,
+      guest_name: b.guest_name,
+      check_in: b.check_in.toISOString(),
+      check_out: b.check_out.toISOString(),
+      num_nights: allocation.nights,
+      channel_label: getAnalyticsChannelLabel(b.channel_name, b.source),
+      accommodation_total: allocation.accommodation_total,
+      gross_revenue: allocation.gross_revenue > 0 ? allocation.gross_revenue : undefined,
+      discount: allocation.discount,
+      extra_guest_charge: allocation.extra_guest_charge,
+      cleaning_fee: allocation.cleaning_fee,
+      extra_charges: allocation.extra_charges,
+      upsells: allocation.upsells,
+      booking_taxes: allocation.booking_taxes,
+      channel_commission: commission,
+      total_management_fee: allocation.total_management_fee,
+      payment_processing_fee: allocation.payment_processing_fee,
+      total_payout: allocation.total_payout,
+      is_prorated: allocation.isProrated,
+      nights_in_period: allocation.nights,
+      total_stay_nights: allocation.totalNights,
+      is_manual_override: allocation.isManualOverride,
+      manual_note: allocation.manualNote,
+    }
+  }
+
   const numNights = Math.max(
     0,
     Math.round((b.check_out.getTime() - b.check_in.getTime()) / (1000 * 60 * 60 * 24))
@@ -138,24 +360,31 @@ export function buildPropertyStatement(input: {
   existingStatementStatus?: "DRAFT" | "FINAL" | null
   hasPdf?: boolean
   isVirtualClient?: boolean
+  bookingOverrides?: StatementBookingOverrideRow[]
 }): PropertyStatement {
   const eligible = filterBookingsForStatementMonth(input.bookings, input.year, input.month, {
     includeAlreadyOnStatement: true,
   })
+  const allocations = allocationsForStatementMonth(
+    eligible,
+    input.year,
+    input.month,
+    input.bookingOverrides ?? []
+  )
   const feeType = input.managementFeeType ?? "percentage"
   const rate = input.commissionPercentProperty ?? 0
   const welcomePackUnit = round2(input.welcomePackFeePerBooking ?? 0)
-  const bookingCount = eligible.length
+  const bookingCount = allocations.length
 
   const cleaningExpenseLines = buildCleaningFeeExpenseLines(
-    eligible.map((b) => ({
-      id: b.id,
-      guestName: b.guest_name,
-      cleaningFee: num(b.cleaning_fee),
+    allocations.map((a) => ({
+      id: a.booking.id,
+      guestName: a.booking.guest_name,
+      cleaningFee: a.cleaning_fee,
     }))
   )
   const welcomePackExpenseLines = buildWelcomePackExpenseLines(
-    eligible.map((b) => ({ id: b.id, guestName: b.guest_name })),
+    allocations.map((a) => ({ id: a.booking.id, guestName: a.booking.guest_name })),
     welcomePackUnit
   )
   const automaticExpenses = [...cleaningExpenseLines, ...welcomePackExpenseLines]
@@ -177,11 +406,12 @@ export function buildPropertyStatement(input: {
   let totalManagementFees = 0
   let totalBookingsPayout = 0
 
-  const lines: StatementLine[] = eligible.map((b) => {
-    const row = bookingToSnapshotRow(b)
-    const nights = row.num_nights
+  const lines: StatementLine[] = allocations.map((a) => {
+    const b = a.booking
+    const row = bookingToSnapshotRow(b, a)
+    const nights = a.nights
     totalNights += nights
-    const gross = bookingGrossFromInput(b)
+    const gross = allocationGrossRevenue(a)
     grossRevenue += gross
     totalDiscount += row.discount
     totalPlatformFees += row.channel_commission
@@ -223,6 +453,11 @@ export function buildPropertyStatement(input: {
         managementFeeAmount: mgmtAmount,
         welcomePackFee: welcomePackUnit,
       }),
+      isProrated: a.isProrated && !a.isManualOverride,
+      nightsInMonth: a.nights,
+      totalStayNights: a.totalNights,
+      isManualOverride: a.isManualOverride,
+      manualNote: a.manualNote,
     }
   })
 
@@ -275,16 +510,13 @@ export function buildPropertyStatement(input: {
     existingStatementFileUrl: null,
     existingStatementFileName: null,
     isVirtualClient: input.isVirtualClient ?? false,
+    bookingOverrides: input.bookingOverrides ?? [],
   }
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
 }
 
 /**
  * Bookings that may be selected on a statement for this period: active status,
- * check-in in statement month or prior month (carry-in), and not on a different statement.
+ * nights in the statement month, and not on a different statement.
  * Rows already on `existingStatementId` stay eligible when updating a draft or final PDF.
  */
 export function filterBookingsEligibleForStatement(
@@ -296,7 +528,7 @@ export function filterBookingsEligibleForStatement(
   const onThisStatement = existingStatementId ?? null
   return bookings.filter((b) => {
     if (!isStatementActiveBookingStatus(b.status)) return false
-    if (!checkInAllowedOnOwnerStatement(b.check_in, year, month)) return false
+    if (!bookingHasNightsInCalendarMonth(b.check_in, b.check_out, year, month)) return false
     if (b.owner_statement_id != null && b.owner_statement_id !== onThisStatement) return false
     return true
   })
@@ -313,11 +545,33 @@ export function bookingIdsEligibleForStatementSelection(
   )
 }
 
-/** Bookings eligible for auto-generate (unpaid only, active, check-in rules). */
+/** Bookings eligible for auto-generate (unpaid only, active, nights in period). */
 export function selectBookingIdsForAutoGenerate(
   bookings: StatementBookingInput[],
   year: number,
   month: number
 ): string[] {
   return filterBookingsForStatementMonth(bookings, year, month).map((b) => b.id)
+}
+
+/** Pro-ration display metadata for a booking row in a given statement month. */
+export function prorationMetaForBookingInMonth(
+  booking: Pick<StatementBookingInput, "check_in" | "check_out" | "is_manual_override">,
+  year: number,
+  month: number
+): {
+  isProrated: boolean
+  nights: number
+  totalNights: number
+  ratio: number
+} | null {
+  const allocations = prorateBookingByMonth(booking as StatementBookingInput)
+  const match = allocations.find((a) => a.year === year && a.month === month)
+  if (!match) return null
+  return {
+    isProrated: match.isProrated,
+    nights: match.nights,
+    totalNights: match.totalNights,
+    ratio: match.ratio,
+  }
 }

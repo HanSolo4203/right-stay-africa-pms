@@ -190,44 +190,20 @@ function payloadToUpdateInput(
     out.total_payout = totalP
   }
 
-  const acc = mergeOptionalDecimal(existing.accommodation_total, payload.accommodation_total)
-  if (acc !== undefined) out.accommodation_total = acc
-
-  const clean = mergeOptionalDecimal(existing.cleaning_fee, payload.cleaning_fee)
-  if (clean !== undefined) out.cleaning_fee = clean
-
-  const disc = mergeOptionalDecimal(existing.discount, payload.discount)
-  if (disc !== undefined) out.discount = disc
-
-  const extGuest = mergeOptionalDecimal(existing.extra_guest_charge, payload.extra_guest_charge)
-  if (extGuest !== undefined) out.extra_guest_charge = extGuest
-
-  const extChg = mergeOptionalDecimal(existing.extra_charges, payload.extra_charges)
-  if (extChg !== undefined) out.extra_charges = extChg
-
-  const ups = mergeOptionalDecimal(existing.upsells, payload.upsells)
-  if (ups !== undefined) out.upsells = ups
-
-  const tax = mergeOptionalDecimal(existing.booking_taxes, payload.booking_taxes)
-  if (tax !== undefined) out.booking_taxes = tax
-
-  const gross = mergeOptionalDecimal(existing.gross_revenue, payload.gross_revenue)
-  if (gross !== undefined) out.gross_revenue = gross
-
-  const net = mergeOptionalDecimal(existing.net_revenue, payload.net_revenue)
-  if (net !== undefined) out.net_revenue = net
-
-  const comm = mergeOptionalDecimal(existing.commission, payload.commission)
-  if (comm !== undefined) out.commission = comm
-
-  const commTax = mergeOptionalDecimal(existing.commission_tax, payload.commission_tax)
-  if (commTax !== undefined) out.commission_tax = commTax
-
-  const mgmt = mergeOptionalDecimal(existing.total_management_fee, payload.total_management_fee)
-  if (mgmt !== undefined) out.total_management_fee = mgmt
-
-  const ppf = mergeOptionalDecimal(existing.payment_processing_fee, payload.payment_processing_fee)
-  if (ppf !== undefined) out.payment_processing_fee = ppf
+  // CSV import is source of truth for financial columns — always overwrite from the file.
+  out.accommodation_total = d(payload.accommodation_total)
+  out.cleaning_fee = d(payload.cleaning_fee)
+  out.discount = d(payload.discount)
+  out.extra_guest_charge = d(payload.extra_guest_charge)
+  out.extra_charges = d(payload.extra_charges)
+  out.upsells = d(payload.upsells)
+  out.booking_taxes = d(payload.booking_taxes)
+  out.gross_revenue = d(payload.gross_revenue)
+  out.net_revenue = d(payload.net_revenue)
+  out.commission = d(payload.commission)
+  out.commission_tax = d(payload.commission_tax)
+  out.total_management_fee = d(payload.total_management_fee)
+  out.payment_processing_fee = d(payload.payment_processing_fee)
 
   const email = mergeOptionalString(existing.guest_email, payload.guest_email)
   if (email !== undefined) out.guest_email = email
@@ -267,7 +243,40 @@ export async function findMatchingBooking(
   return findMatchingBookingWithClient(prisma, row, propertyDbId)
 }
 
+const FINANCIAL_EPS = 0.005
+
+function decimalToNumber(v: Prisma.Decimal | null | undefined): number {
+  if (v == null) return 0
+  const n = Number(v.toString())
+  return Number.isFinite(n) ? n : 0
+}
+
+function amountsClose(a: number, b: number): boolean {
+  return Math.abs(a - b) <= FINANCIAL_EPS
+}
+
+/**
+ * Compare persisted booking money fields to the parsed CSV row.
+ * Catches rows skipped by hash when an earlier import mapped columns incorrectly.
+ */
+export function bookingFinancialsMatchDb(existing: Booking, row: ParsedBookingRow): boolean {
+  return (
+    amountsClose(decimalToNumber(existing.booking_taxes), row.booking_taxes) &&
+    amountsClose(decimalToNumber(existing.payment_processing_fee), row.payment_processing_fee) &&
+    amountsClose(decimalToNumber(existing.accommodation_total), row.accommodation_total) &&
+    amountsClose(decimalToNumber(existing.cleaning_fee), row.cleaning_fee) &&
+    amountsClose(decimalToNumber(existing.commission), row.commission) &&
+    amountsClose(decimalToNumber(existing.commission_tax), row.commission_tax) &&
+    amountsClose(decimalToNumber(existing.total_management_fee), row.total_management_fee) &&
+    amountsClose(decimalToNumber(existing.gross_revenue), row.gross_revenue) &&
+    amountsClose(decimalToNumber(existing.total_payout), row.total_payout)
+  )
+}
+
 export function hasBookingChanged(existing: Booking, row: ParsedBookingRow): boolean {
+  if (!bookingFinancialsMatchDb(existing, row)) {
+    return true
+  }
   if (existing.csv_row_hash != null && existing.csv_row_hash === row.raw_hash) {
     return false
   }

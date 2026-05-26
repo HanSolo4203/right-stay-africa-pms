@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { assertClientsApiAccess } from "@/lib/clients/api-auth"
 import { generatePropertyStatement } from "@/lib/clients/statement-service"
+import { statementAutomaticExpenseLineSchema } from "@/lib/validations/statement-expense"
 
 const bodySchema = z.object({
   clientId: z.string().min(1),
@@ -10,6 +11,7 @@ const bodySchema = z.object({
   year: z.number().int().min(2000).max(2100),
   bookingIds: z.array(z.string().uuid()).optional(),
   statementId: z.string().uuid().optional().nullable(),
+  automaticExpenseLines: z.array(statementAutomaticExpenseLineSchema).optional(),
 })
 
 export async function POST(request: Request) {

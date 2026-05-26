@@ -2,8 +2,12 @@ import "server-only"
 
 import type { ReactNode } from "react"
 import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
-import { differenceInCalendarDays, getDaysInMonth } from "date-fns"
+import { getDaysInMonth } from "date-fns"
 import { computeExpenses } from "./compute"
+
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100
+}
 import {
   getOwnerStatementPdfFontFamily,
   pdfFontBold,
@@ -65,7 +69,15 @@ import {
   STATEMENT_PDF_FOOTER_RESERVE,
   StatementPdfFooter,
 } from "./statement-pdf-footer"
-import { STATEMENT_PDF_SAFE_INSET } from "./statement-pdf-layout"
+import {
+  STATEMENT_PDF_BLEED_BLOCK_MARGINS,
+  STATEMENT_PDF_BLEED_CONTENT_HORIZONTAL_PADDING,
+  STATEMENT_PDF_CONTENT_HORIZONTAL_PADDING,
+  STATEMENT_PDF_HEADER_TOP_PADDING,
+  STATEMENT_PDF_SAFE_INSET,
+} from "./statement-pdf-layout"
+import type { CompanySettingsPdf } from "@/lib/company-settings"
+import { formatPropertyBuildingLine } from "./owner-statement-pdf-property"
 import { chunkStatementBookings } from "./statement-pdf-pagination"
 import { getStatementLogoDataUri } from "./statement-pdf-logo"
 import {
@@ -76,6 +88,10 @@ import {
 } from "./owner-statement-pdf-format"
 
 export { formatZAR } from "./owner-statement-pdf-format"
+
+function formatMonthName(month: number): string {
+  return new Date(2000, month - 1, 1).toLocaleDateString("en-ZA", { month: "long" })
+}
 
 function formatMonthYear(month: number, year: number): string {
   return new Date(year, month - 1, 1).toLocaleDateString("en-ZA", {
@@ -105,17 +121,6 @@ function formatStayDateCompact(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })
-}
-
-function bookedNightsInMonth(checkInIso: string, checkOutIso: string, month: number, year: number): number {
-  const firstDay = new Date(year, month - 1, 1)
-  const lastDay = new Date(year, month, 0)
-  const checkIn = new Date(checkInIso)
-  const checkOut = new Date(checkOutIso)
-  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) return 0
-  const overlapStart = checkIn > firstDay ? checkIn : firstDay
-  const overlapEnd = checkOut < lastDay ? checkOut : lastDay
-  return Math.max(0, differenceInCalendarDays(overlapEnd, overlapStart))
 }
 
 function sumBookings(rows: OwnerStatementSnapshotBookingV1[]) {
@@ -177,20 +182,21 @@ const styles = StyleSheet.create({
     paddingRight: STATEMENT_PDF_SAFE_INSET,
     paddingBottom: STATEMENT_PDF_FOOTER_RESERVE,
   },
-  bleedBlock: {
-    marginTop: -STATEMENT_PDF_SAFE_INSET,
-    marginLeft: -STATEMENT_PDF_SAFE_INSET,
-    marginRight: -STATEMENT_PDF_SAFE_INSET,
+  bleedBlock: STATEMENT_PDF_BLEED_BLOCK_MARGINS,
+  bleedHeaderWrap: {
+    ...STATEMENT_PDF_BLEED_BLOCK_MARGINS,
+    backgroundColor: C.headerBg,
+    paddingTop: STATEMENT_PDF_HEADER_TOP_PADDING,
   },
   header: {
     backgroundColor: C.headerBg,
     paddingVertical: 22,
-    paddingHorizontal: 36,
+    paddingHorizontal: STATEMENT_PDF_BLEED_CONTENT_HORIZONTAL_PADDING,
   },
   continuationHeader: {
     backgroundColor: C.headerBg,
     paddingVertical: 12,
-    paddingHorizontal: 36,
+    paddingHorizontal: STATEMENT_PDF_BLEED_CONTENT_HORIZONTAL_PADDING,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -249,6 +255,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: C.white,
   },
+  propertyUnit: {
+    fontFamily: FONT,
+    fontSize: 11,
+    color: "#8aab94",
+    fontWeight: 400,
+    marginTop: 2,
+    marginBottom: 2,
+  },
   propertyAddress: {
     fontFamily: FONT,
     fontSize: 10,
@@ -285,7 +299,7 @@ const styles = StyleSheet.create({
   kpiStrip: {
     backgroundColor: C.stripBg,
     paddingVertical: 14,
-    paddingHorizontal: 36,
+    paddingHorizontal: STATEMENT_PDF_BLEED_CONTENT_HORIZONTAL_PADDING,
     borderBottomWidth: 0.5,
     borderBottomColor: C.border,
     flexDirection: "row",
@@ -339,12 +353,12 @@ const styles = StyleSheet.create({
   },
   sectionPad: {
     paddingVertical: 18,
-    paddingHorizontal: 36,
+    paddingHorizontal: STATEMENT_PDF_CONTENT_HORIZONTAL_PADDING,
   },
   sectionPadFinancial: {
     paddingTop: 18,
     paddingBottom: STATEMENT_PDF_SAFE_INSET + 12,
-    paddingHorizontal: 36,
+    paddingHorizontal: STATEMENT_PDF_CONTENT_HORIZONTAL_PADDING,
   },
   sectionHeading: {
     fontFamily: FONT_BOLD,
@@ -466,6 +480,20 @@ const styles = StyleSheet.create({
     color: C.faint,
     marginTop: 10,
   },
+  prorationLine: {
+    fontFamily: FONT,
+    fontSize: 8,
+    color: "#b45309",
+    fontStyle: "italic",
+    marginTop: 2,
+  },
+  prorationFootnote: {
+    fontFamily: FONT,
+    fontSize: 8,
+    fontStyle: "italic",
+    color: "#aaaaaa",
+    marginTop: 8,
+  },
   /** First page only — balanced with compact table so 4 booking rows still fit. */
   headerFirstPage: {
     paddingTop: 22,
@@ -578,6 +606,8 @@ const styles = StyleSheet.create({
 export type OwnerStatementPdfMeta = {
   propertyName: string
   propertyAddressLine: string
+  propertyBuildingName?: string | null
+  propertyUnitNumber?: string | null
   ownerName: string | null
   isFinal: boolean
 }
@@ -745,11 +775,13 @@ function StatementContinuationHeader({
   suffix?: string
 }) {
   return (
-    <View style={[styles.continuationHeader, styles.bleedBlock]} wrap={false}>
-      <Text style={styles.continuationTitle}>{propertyName}</Text>
-      <Text style={styles.continuationMeta}>
-        {formatMonthYear(month, year)} · {suffix}
-      </Text>
+    <View style={styles.bleedHeaderWrap} wrap={false}>
+      <View style={styles.continuationHeader}>
+        <Text style={styles.continuationTitle}>{propertyName}</Text>
+        <Text style={styles.continuationMeta}>
+          {formatMonthYear(month, year)} · {suffix}
+        </Text>
+      </View>
     </View>
   )
 }
@@ -759,11 +791,13 @@ function BookingsTable({
   totalRow,
   showTotal,
   compact = false,
+  periodMonthName,
 }: {
   rows: OwnerStatementSnapshotBookingV1[]
   totalRow: OwnerStatementSnapshotBookingV1
   showTotal: boolean
   compact?: boolean
+  periodMonthName: string
 }) {
   return (
     <View style={styles.tableBorder}>
@@ -796,6 +830,15 @@ function BookingsTable({
                 : `${formatStayDate(row.check_in)} – ${formatStayDate(row.check_out)}`}{" "}
               · {row.num_nights} night{row.num_nights === 1 ? "" : "s"}
             </Text>
+            {row.is_prorated && row.nights_in_period != null && row.total_stay_nights != null ? (
+              <Text style={styles.prorationLine}>
+                Pro-rated: {row.nights_in_period} of {row.total_stay_nights} nights ({periodMonthName}{" "}
+                share)
+              </Text>
+            ) : null}
+            {row.is_manual_override && row.manual_note ? (
+              <Text style={styles.prorationLine}>Manual override: {row.manual_note}</Text>
+            ) : null}
           </BookingCol>
           <BookingMoneyCells row={row} compact={compact} />
         </View>
@@ -822,6 +865,8 @@ function StatementFinancialSection({
   totalExpenses,
   ownerPayout,
   totalDiscounts,
+  hasProratedBookings = false,
+  periodMonthName,
 }: {
   expenseLines: OwnerStatementExpenseComputed[]
   expenseTotal: number
@@ -832,6 +877,8 @@ function StatementFinancialSection({
   totalExpenses: number
   ownerPayout: number
   totalDiscounts: number
+  hasProratedBookings?: boolean
+  periodMonthName?: string
 }) {
   return (
     <View style={styles.financialStack}>
@@ -939,6 +986,12 @@ function StatementFinancialSection({
           <Text style={styles.summaryPayoutLabel}>Owner payout</Text>
           <Text style={styles.summaryPayoutValue}>{formatZAR(ownerPayout)}</Text>
         </View>
+        {hasProratedBookings && periodMonthName ? (
+          <Text style={styles.prorationFootnote}>
+            One or more bookings span multiple months. Amounts above are pro-rated by occupied nights in{" "}
+            {periodMonthName} — not the full booking value from Uplisting.
+          </Text>
+        ) : null}
         {totalDiscounts > 0 ? (
           <Text style={styles.discountNote}>
             Guest discounts of {formatZAR(totalDiscounts)} are shown in the booking table and are already reflected
@@ -999,9 +1052,11 @@ function KpiCard({
 export function OwnerStatementPdfDocument({
   snapshot,
   meta,
+  companySettings,
 }: {
   snapshot: OwnerStatementSnapshotV1
   meta: OwnerStatementPdfMeta
+  companySettings: CompanySettingsPdf
 }) {
   const { lines: expenseLines } = computeExpenses(snapshot.manualLines, snapshot.receiptLines)
   const t = snapshot.totals
@@ -1010,13 +1065,12 @@ export function OwnerStatementPdfDocument({
   const rows = snapshot.bookings.map(normaliseBooking)
   const feeSums = sumBookings(rows)
   const channelCommissions = feeSums.channelCommission
+  const totalPaymentProcessingFees = feeSums.processingFee
+  const totalBookingFees = roundMoney(channelCommissions + totalPaymentProcessingFees)
   const totalManagementFees = feeSums.managementFee
 
   const daysInMonth = getDaysInMonth(new Date(year, month - 1, 1))
-  const bookedNights = rows.reduce(
-    (s, r) => s + bookedNightsInMonth(r.check_in, r.check_out, month, year),
-    0
-  )
+  const bookedNights = rows.reduce((s, r) => s + r.num_nights, 0)
   const occupancyRate = daysInMonth > 0 ? (bookedNights / daysInMonth) * 100 : 0
 
   const grossRevenue = t.totalGross ?? 0
@@ -1063,6 +1117,12 @@ export function OwnerStatementPdfDocument({
   })
 
   const bookingChunks = chunkStatementBookings(rows)
+  const propertyBuildingLine = formatPropertyBuildingLine(
+    meta.propertyBuildingName,
+    meta.propertyUnitNumber
+  )
+  const periodMonthName = formatMonthName(month)
+  const hasProratedBookings = rows.some((r) => r.is_prorated)
   const financialProps = {
     expenseLines,
     expenseTotal,
@@ -1073,6 +1133,8 @@ export function OwnerStatementPdfDocument({
     totalExpenses,
     ownerPayout,
     totalDiscounts,
+    hasProratedBookings,
+    periodMonthName,
   }
 
   return (
@@ -1084,33 +1146,38 @@ export function OwnerStatementPdfDocument({
         <Page key={`bookings-${chunkIndex}`} size="A4" orientation="landscape" style={styles.page}>
           {chunkIndex === 0 ? (
             <>
-              <View style={[styles.header, styles.bleedBlock, styles.headerFirstPage]} wrap={false}>
-                <View style={styles.headerRow1}>
-                  <Image src={getStatementLogoDataUri()} style={[styles.logo, styles.logoFirstPage]} />
-                  <View style={styles.periodBlock}>
-                    <Text style={styles.periodLabel}>OWNER STATEMENT</Text>
-                    <Text style={[styles.periodMonth, styles.periodMonthFirstPage]}>
-                      {formatMonthYear(month, year)}
-                    </Text>
-                    <Text style={[styles.periodRange, styles.periodRangeFirstPage]}>
-                      {formatPeriodRange(month, year)}
+              <View style={styles.bleedHeaderWrap} wrap={false}>
+                <View style={[styles.header, styles.headerFirstPage]}>
+                  <View style={styles.headerRow1}>
+                    <Image src={getStatementLogoDataUri()} style={[styles.logo, styles.logoFirstPage]} />
+                    <View style={styles.periodBlock}>
+                      <Text style={styles.periodLabel}>OWNER STATEMENT</Text>
+                      <Text style={[styles.periodMonth, styles.periodMonthFirstPage]}>
+                        {formatMonthYear(month, year)}
+                      </Text>
+                      <Text style={[styles.periodRange, styles.periodRangeFirstPage]}>
+                        {formatPeriodRange(month, year)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={[styles.headerRow2, styles.headerRow2FirstPage]}>
+                    <Text style={[styles.propertyName, styles.propertyNameFirstPage]}>{meta.propertyName}</Text>
+                    {propertyBuildingLine ? (
+                      <Text style={styles.propertyUnit}>{propertyBuildingLine}</Text>
+                    ) : null}
+                    <Text style={[styles.propertyAddress, styles.propertyAddressFirstPage]}>
+                      {meta.propertyAddressLine}
                     </Text>
                   </View>
-                </View>
-                <View style={[styles.headerRow2, styles.headerRow2FirstPage]}>
-                  <Text style={[styles.propertyName, styles.propertyNameFirstPage]}>{meta.propertyName}</Text>
-                  <Text style={[styles.propertyAddress, styles.propertyAddressFirstPage]}>
-                    {meta.propertyAddressLine}
-                  </Text>
-                </View>
-                <View style={[styles.headerRow3, styles.headerRow3FirstPage]}>
-                  <View>
-                    <Text style={[styles.ownerLabel, styles.ownerLabelFirstPage]}>PROPERTY OWNER</Text>
-                    <Text style={[styles.ownerName, styles.ownerNameFirstPage]}>
-                      {meta.ownerName ?? "—"}
-                    </Text>
+                  <View style={[styles.headerRow3, styles.headerRow3FirstPage]}>
+                    <View>
+                      <Text style={[styles.ownerLabel, styles.ownerLabelFirstPage]}>PROPERTY OWNER</Text>
+                      <Text style={[styles.ownerName, styles.ownerNameFirstPage]}>
+                        {meta.ownerName ?? "—"}
+                      </Text>
+                    </View>
+                    <Text style={[styles.zarNote, styles.zarNoteFirstPage]}>All amounts in ZAR</Text>
                   </View>
-                  <Text style={[styles.zarNote, styles.zarNoteFirstPage]}>All amounts in ZAR</Text>
                 </View>
               </View>
 
@@ -1124,8 +1191,8 @@ export function OwnerStatementPdfDocument({
                 <KpiCard
                   compact
                   label="BOOKING FEES"
-                  value={formatZAR(channelCommissions)}
-                  sub="Channel commissions"
+                  value={formatZAR(totalBookingFees)}
+                  sub="Commissions & processing"
                 />
                 <KpiCard
                   compact
@@ -1173,10 +1240,15 @@ export function OwnerStatementPdfDocument({
               totalRow={totalRow}
               showTotal={chunkIndex === bookingChunks.length - 1}
               compact={chunkIndex === 0}
+              periodMonthName={periodMonthName}
             />
           </View>
 
-          <StatementPdfFooter generatedDate={generatedDate} backgroundColor={C.white} />
+          <StatementPdfFooter
+            generatedDate={generatedDate}
+            backgroundColor={C.white}
+            companySettings={companySettings}
+          />
         </Page>
       ))}
 
@@ -1190,7 +1262,11 @@ export function OwnerStatementPdfDocument({
         <View style={styles.sectionPadFinancial}>
           <StatementFinancialSection {...financialProps} />
         </View>
-        <StatementPdfFooter generatedDate={generatedDate} backgroundColor={C.white} />
+        <StatementPdfFooter
+          generatedDate={generatedDate}
+          backgroundColor={C.white}
+          companySettings={companySettings}
+        />
       </Page>
 
       <Page
@@ -1205,11 +1281,13 @@ export function OwnerStatementPdfDocument({
           periodLabel={formatMonthYear(month, year)}
           periodRange={formatPeriodRange(month, year)}
           propertyName={meta.propertyName}
+          propertyBuildingLine={propertyBuildingLine}
         />
         <StatementPdfFooter
           generatedDate={generatedDate}
           backgroundColor="#f5f7f5"
           metaSuffix="CSV import data and PMS expenses"
+          companySettings={companySettings}
         />
       </Page>
     </Document>

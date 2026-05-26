@@ -7,10 +7,13 @@ import { BookingsTab } from "@/components/properties/bookings-tab"
 import { LiveBookingsTab } from "@/components/properties/live-bookings-tab"
 import { ListingLinkPreview } from "@/components/properties/listing-link-preview"
 import { PropertyAnalyticsCard } from "@/components/properties/property-analytics-card"
+import {
+  PropertyFinancialsStatementsHistory,
+  PropertyFinancialsSummary,
+  type PropertyFinancialsStatementItem,
+} from "@/components/financials/property-financials-dashboard"
 import { ReceiptsList } from "@/components/financials/receipts-list"
-import { InfoGuideTab } from "@/components/info-guide/info-guide-tab"
-import { OwnerStatementsList } from "@/components/financials/owner-statements-list"
-import { StatementsList } from "@/components/financials/statements-list"
+import { InfoGuideTab, type PropertyBuildingInfo } from "@/components/info-guide/info-guide-tab"
 import { OwnerTab } from "@/components/owners/owner-tab"
 import { ContractTab } from "@/components/contracts/contract-tab"
 import { PropertyRemoteImage } from "@/components/properties/property-remote-image"
@@ -34,22 +37,9 @@ type TabValue = (typeof tabItems)[number]["value"]
 type PropertyTabsProps = {
   activeTab: TabValue
   propertyId: string
+  clientId: string | null
   userRole: "SUPER_ADMIN" | "PROPERTY_MANAGER" | "OWNER" | null
-  propertyName: string
-  propertyCommissionPercent: number | null
-  welcomePackFeePerBooking: number
-  statements: Array<{
-    id: string
-    month: number
-    year: number
-    file_name: string | null
-    file_url: string | null
-    notes: string | null
-    created_at: string
-    source: "UPLOADED" | "GENERATED"
-    status: "DRAFT" | "FINAL" | null
-    snapshot: unknown
-  }>
+  statements: PropertyFinancialsStatementItem[]
   receipts: Array<{
     id: string
     date: string
@@ -81,6 +71,7 @@ type PropertyTabsProps = {
     emergency_contacts: Array<{ name: string; phone: string }>
     notes: string | null
   } | null
+  buildingInfo: PropertyBuildingInfo
   contracts: Array<{
     id: string
     file_name: string
@@ -117,14 +108,13 @@ function PropertyTabsFallback() {
 function PropertyTabsInner({
   activeTab,
   propertyId,
+  clientId,
   userRole,
-  propertyName,
-  propertyCommissionPercent,
-  welcomePackFeePerBooking,
   statements,
   receipts,
   owner,
   infoGuide,
+  buildingInfo,
   contracts,
   overview,
   bookings,
@@ -135,7 +125,7 @@ function PropertyTabsInner({
   /** Local tab avoids `router.replace` on every switch, which re-ran the full RSC + Prisma load. */
   const [tab, setTab] = useState<TabValue>(activeTab)
   /** Controlled nested tabs avoid Radix sync edge cases under an outer Tabs root. */
-  const [financialsSubTab, setFinancialsSubTab] = useState<"statements" | "owner-statements" | "receipts">("statements")
+  const [financialsSubTab, setFinancialsSubTab] = useState<"summary" | "statements" | "receipts">("summary")
 
   useEffect(() => {
     setTab(activeTab)
@@ -173,42 +163,38 @@ function PropertyTabsInner({
               canManagePortal={userRole === "SUPER_ADMIN" || userRole === "PROPERTY_MANAGER"}
             />
           ) : tab.value === "info-guide" ? (
-            <InfoGuideTab propertyId={propertyId} infoGuide={infoGuide} />
+            <InfoGuideTab propertyId={propertyId} infoGuide={infoGuide} buildingInfo={buildingInfo} />
           ) : tab.value === "financials" ? (
             <Tabs
               value={financialsSubTab}
               onValueChange={(v) => {
-                if (v === "statements" || v === "owner-statements" || v === "receipts") setFinancialsSubTab(v)
+                if (v === "summary" || v === "statements" || v === "receipts") setFinancialsSubTab(v)
               }}
               className="space-y-4"
             >
               <TabsList>
+                <TabsTrigger value="summary">Summary</TabsTrigger>
                 <TabsTrigger value="statements">Statements</TabsTrigger>
-                <TabsTrigger value="owner-statements">Owner statements</TabsTrigger>
                 <TabsTrigger value="receipts">Receipts</TabsTrigger>
               </TabsList>
-              <TabsContent value="statements">
-                <StatementsList
-                  propertyId={propertyId}
-                  propertyName={propertyName}
-                  propertyCommissionPercent={propertyCommissionPercent}
-                  welcomePackFeePerBooking={welcomePackFeePerBooking}
-                  statements={statements}
-                  userRole={userRole}
-                  bookings={bookings}
-                  receipts={receipts}
-                />
+              <TabsContent value="summary">
+                <Card className="bg-white">
+                  <CardContent className="p-6">
+                    <PropertyFinancialsSummary
+                      propertyId={propertyId}
+                      clientId={clientId}
+                      statements={statements}
+                      userRole={userRole}
+                    />
+                  </CardContent>
+                </Card>
               </TabsContent>
-              <TabsContent value="owner-statements">
-                <OwnerStatementsList
+              <TabsContent value="statements">
+                <PropertyFinancialsStatementsHistory
                   propertyId={propertyId}
-                  propertyName={propertyName}
-                  propertyCommissionPercent={propertyCommissionPercent}
-                  welcomePackFeePerBooking={welcomePackFeePerBooking}
+                  clientId={clientId}
                   statements={statements}
                   userRole={userRole}
-                  bookings={bookings}
-                  receipts={receipts}
                 />
               </TabsContent>
               <TabsContent value="receipts">

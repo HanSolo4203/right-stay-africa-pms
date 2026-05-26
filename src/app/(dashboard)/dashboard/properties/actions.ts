@@ -29,6 +29,8 @@ function normalizePayload(formData: PropertyFormValues) {
     city: formData.city.trim(),
     unit_number: normalizeOptional(formData.unit_number),
     building_name: normalizeOptional(formData.building_name),
+    building_manager_email: normalizeOptional(formData.building_manager_email),
+    building_manager_phone: normalizeOptional(formData.building_manager_phone),
     type: formData.type,
     bedrooms: formData.bedrooms,
     bathrooms: formData.bathrooms,

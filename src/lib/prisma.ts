@@ -10,7 +10,7 @@ if (!connectionString) {
 const adapter = new PrismaPg({ connectionString })
 
 /** Bump when Client/Property schema changes so dev HMR does not reuse a stale PrismaClient. */
-const PRISMA_SCHEMA_VERSION = 4
+const PRISMA_SCHEMA_VERSION = 5
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -23,10 +23,12 @@ function isPrismaClientComplete(client: PrismaClient): boolean {
   const c = client as PrismaClient & {
     client?: { findMany: unknown }
     statementExpense?: { findMany: unknown }
+    companySettings?: { findFirst: unknown }
   }
   return (
     typeof c.client?.findMany === "function" &&
-    typeof c.statementExpense?.findMany === "function"
+    typeof c.statementExpense?.findMany === "function" &&
+    typeof c.companySettings?.findFirst === "function"
   )
 }
 

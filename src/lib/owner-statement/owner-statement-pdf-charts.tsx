@@ -11,7 +11,13 @@ import {
 } from "./owner-statement-pdf-analytics"
 import { formatZAR } from "./owner-statement-pdf-format"
 import { getOwnerStatementPdfFontFamily, pdfFontBold, pdfFontRegular } from "./register-pdf-fonts"
-import { STATEMENT_PDF_SAFE_INSET } from "./statement-pdf-layout"
+import {
+  STATEMENT_PDF_BLEED_BLOCK_MARGINS,
+  STATEMENT_PDF_BLEED_CONTENT_HORIZONTAL_PADDING,
+  STATEMENT_PDF_CONTENT_HORIZONTAL_PADDING,
+  STATEMENT_PDF_HEADER_TOP_PADDING,
+  STATEMENT_PDF_SAFE_INSET,
+} from "./statement-pdf-layout"
 import { getStatementLogoDataUri } from "./statement-pdf-logo"
 
 const FONT = pdfFontRegular(getOwnerStatementPdfFontFamily())
@@ -42,15 +48,16 @@ const chartStyles = {
     color: C.ink,
     backgroundColor: C.pageBg,
   } satisfies Style,
-  bleedBlock: {
-    marginLeft: -STATEMENT_PDF_SAFE_INSET,
-    marginRight: -STATEMENT_PDF_SAFE_INSET,
-    marginTop: -STATEMENT_PDF_SAFE_INSET,
+  bleedBlock: STATEMENT_PDF_BLEED_BLOCK_MARGINS satisfies Style,
+  bleedHeaderWrap: {
+    ...STATEMENT_PDF_BLEED_BLOCK_MARGINS,
+    backgroundColor: C.headerBg,
+    paddingTop: STATEMENT_PDF_HEADER_TOP_PADDING,
   } satisfies Style,
   header: {
     backgroundColor: C.headerBg,
     paddingVertical: 14,
-    paddingHorizontal: 32,
+    paddingHorizontal: STATEMENT_PDF_BLEED_CONTENT_HORIZONTAL_PADDING,
   } satisfies Style,
   headerRow: {
     flexDirection: "row" as const,
@@ -96,8 +103,14 @@ const chartStyles = {
     fontSize: 11,
     color: C.white,
   } satisfies Style,
+  headerPropertyBuilding: {
+    fontFamily: FONT,
+    fontSize: 9.5,
+    color: C.headerSoft,
+    marginTop: 2,
+  } satisfies Style,
   body: {
-    paddingHorizontal: 32,
+    paddingHorizontal: STATEMENT_PDF_CONTENT_HORIZONTAL_PADDING,
     paddingTop: 10,
     paddingBottom: STATEMENT_PDF_SAFE_INSET + 4,
     gap: 8,
@@ -325,23 +338,30 @@ function AnalyticsHeader({
   periodLabel,
   periodRange,
   propertyName,
+  propertyBuildingLine,
 }: {
   periodLabel: string
   periodRange: string
   propertyName: string
+  propertyBuildingLine: string | null
 }) {
   return (
-    <View style={[chartStyles.header, chartStyles.bleedBlock]} wrap={false}>
-      <View style={chartStyles.headerRow}>
-        <Image src={getStatementLogoDataUri()} style={chartStyles.logo} />
-        <View style={chartStyles.headerTitleBlock}>
-          <Text style={chartStyles.headerLabel}>Property Analytics</Text>
-          <Text style={chartStyles.headerPeriod}>{periodLabel}</Text>
-          <Text style={chartStyles.headerSub}>{periodRange}</Text>
+    <View style={chartStyles.bleedHeaderWrap} wrap={false}>
+      <View style={chartStyles.header}>
+        <View style={chartStyles.headerRow}>
+          <Image src={getStatementLogoDataUri()} style={chartStyles.logo} />
+          <View style={chartStyles.headerTitleBlock}>
+            <Text style={chartStyles.headerLabel}>Property Analytics</Text>
+            <Text style={chartStyles.headerPeriod}>{periodLabel}</Text>
+            <Text style={chartStyles.headerSub}>{periodRange}</Text>
+          </View>
         </View>
-      </View>
-      <View style={chartStyles.headerProperty}>
-        <Text style={chartStyles.headerPropertyName}>{propertyName}</Text>
+        <View style={chartStyles.headerProperty}>
+          <Text style={chartStyles.headerPropertyName}>{propertyName}</Text>
+          {propertyBuildingLine ? (
+            <Text style={chartStyles.headerPropertyBuilding}>{propertyBuildingLine}</Text>
+          ) : null}
+        </View>
       </View>
     </View>
   )
@@ -487,6 +507,7 @@ export function OwnerStatementPdfAnalyticsPage({
   periodLabel,
   periodRange,
   propertyName,
+  propertyBuildingLine,
 }: {
   channelSlices: StatementChannelSlice[]
   incomeExpense: StatementIncomeExpenseTotals
@@ -494,6 +515,7 @@ export function OwnerStatementPdfAnalyticsPage({
   periodLabel: string
   periodRange: string
   propertyName: string
+  propertyBuildingLine: string | null
 }) {
   return (
     <View style={chartStyles.page}>
@@ -501,6 +523,7 @@ export function OwnerStatementPdfAnalyticsPage({
         periodLabel={periodLabel}
         periodRange={periodRange}
         propertyName={propertyName}
+        propertyBuildingLine={propertyBuildingLine}
       />
 
       <View style={chartStyles.body}>

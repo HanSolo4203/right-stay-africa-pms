@@ -1,6 +1,36 @@
 /** Client statements hub — aligned with owner-statement snapshot booking fields. */
 
 import type { BookingSource, BookingStatus } from "@prisma/client"
+import type { OwnerStatementSnapshotV1 } from "@/lib/owner-statement/types"
+import type { StatementBookingInput } from "@/lib/statement-calculator"
+import type { StatementExpenseCategoryValue } from "@/lib/validations/statement-expense"
+
+/** Pro-rated share of a booking for one calendar month (Johannesburg). */
+export type MonthlyAllocation = {
+  year: number
+  month: number
+  nights: number
+  totalNights: number
+  ratio: number
+  isProrated: boolean
+  accommodation_total: number
+  discount: number
+  extra_guest_charge: number
+  extra_charges: number
+  cleaning_fee: number
+  upsells: number
+  booking_taxes: number
+  channel_commission: number
+  total_management_fee: number
+  payment_processing_fee: number
+  total_payout: number
+  gross_revenue: number
+  booking: StatementBookingInput
+  /** Set when a StatementBookingOverride exists for this month. */
+  isManualOverride?: boolean
+  manualNote?: string
+  overrideId?: string
+}
 
 /** Active booking row for client statement UI (matches financials CSV table). */
 export type ClientStatementBookingRow = {
@@ -26,6 +56,8 @@ export type ClientStatementBookingRow = {
   payment_processing_fee: string | null
   total_payout: string | null
   gross_revenue: string | null
+  is_manual_override?: boolean
+  manual_monthly_note?: string | null
 }
 
 export type StatementLine = {
@@ -46,6 +78,15 @@ export type StatementLine = {
   managementFeePercent: number | null
   managementFeeAmount: number
   netToOwner: number
+  /** True when the stay spans more than one calendar month. */
+  isProrated?: boolean
+  /** Nights occupied in the statement month (may be less than full stay). */
+  nightsInMonth?: number
+  /** Total nights for the full booking stay. */
+  totalStayNights?: number
+  /** Custom amounts for this month (StatementBookingOverride). */
+  isManualOverride?: boolean
+  manualNote?: string
 }
 
 export type PropertyStatementTotals = {
@@ -74,6 +115,8 @@ export type StatementExpenseItem = {
   total: number
   /** System-generated (e.g. welcome pack per booking) — not editable in UI. */
   isAutomatic?: boolean
+  addTenPercent?: boolean
+  expenseCategory?: StatementExpenseCategoryValue | null
 }
 
 export type PropertyStatement = {
@@ -100,6 +143,29 @@ export type PropertyStatement = {
   existingStatementFileName: string | null
   /** True when client is a virtual unassigned-property entry — expenses API disabled. */
   isVirtualClient: boolean
+  /** Persisted snapshot when a generated statement exists for this period. */
+  statementSnapshot?: OwnerStatementSnapshotV1 | null
+  /** Monthly amount overrides for bookings on this property/period. */
+  bookingOverrides?: StatementBookingOverrideRow[]
+}
+
+export type StatementBookingOverrideRow = {
+  id: string
+  booking_id: string
+  property_id: string
+  month: number
+  year: number
+  note: string
+  accommodation_total: number | null
+  discount: number | null
+  extra_charges: number | null
+  cleaning_fee: number | null
+  upsells: number | null
+  booking_taxes: number | null
+  channel_commission: number | null
+  total_management_fee: number | null
+  payment_processing_fee: number | null
+  total_payout: number | null
 }
 
 export type ClientStatementSummary = {

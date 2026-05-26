@@ -1,3 +1,4 @@
+import type { StatementExpenseCategoryValue } from "@/lib/validations/statement-expense"
 import type { OwnerStatementManualLineV1 } from "@/lib/owner-statement/types"
 import type { StatementExpenseItem } from "@/types/statement"
 
@@ -11,6 +12,8 @@ export type StatementExpenseDto = {
   qty: number
   unitPrice: number
   total: number
+  addTenPercent: boolean
+  expenseCategory: StatementExpenseCategoryValue | null
   createdAt: string
 }
 
@@ -20,7 +23,8 @@ export function expensesToManualLines(expenses: StatementExpenseDto[]): OwnerSta
     description: e.description,
     quantity: e.qty,
     unitPrice: e.unitPrice,
-    addTenPercent: false,
+    addTenPercent: e.addTenPercent,
+    expenseCategory: e.expenseCategory,
   }))
 }
 
@@ -32,7 +36,8 @@ export function statementExpenseItemsToManualLines(
     description: e.description,
     quantity: e.qty,
     unitPrice: e.unitPrice,
-    addTenPercent: false,
+    addTenPercent: e.addTenPercent ?? false,
+    expenseCategory: e.expenseCategory ?? null,
   }))
 }
 

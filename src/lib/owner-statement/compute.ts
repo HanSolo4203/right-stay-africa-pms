@@ -35,11 +35,15 @@ export function coerceOwnerStatementManualLine(raw: ManualLineSnapshotInput): Ow
   const addTenPercent = Boolean(raw.addTenPercent)
   const q = raw.quantity
   const u = raw.unitPrice
+  const expenseCategory =
+    raw.expenseCategory != null && typeof raw.expenseCategory === "string"
+      ? raw.expenseCategory
+      : null
   if (typeof q === "number" && Number.isFinite(q) && typeof u === "number" && Number.isFinite(u)) {
-    return { id: raw.id, description, quantity: q, unitPrice: u, addTenPercent }
+    return { id: raw.id, description, quantity: q, unitPrice: u, addTenPercent, expenseCategory }
   }
   const legacy = typeof raw.amount === "number" && Number.isFinite(raw.amount) ? raw.amount : 0
-  return { id: raw.id, description, quantity: 1, unitPrice: legacy, addTenPercent }
+  return { id: raw.id, description, quantity: 1, unitPrice: legacy, addTenPercent, expenseCategory }
 }
 
 export function computeExpenses(

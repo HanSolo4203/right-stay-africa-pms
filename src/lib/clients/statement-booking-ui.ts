@@ -1,4 +1,5 @@
 import type { StatementBookingInput } from "@/lib/statement-calculator"
+import { prorationMetaForBookingInMonth } from "@/lib/statement-calculator"
 import { isStatementActiveBookingStatus } from "@/lib/booking-status"
 import type { ClientStatementBookingRow } from "@/types/statement"
 import type { BookingStatus } from "@prisma/client"
@@ -19,12 +20,36 @@ export type StatementBookingTableRow = Pick<
   | "owner_statement_id"
 >
 
+export function isBookingOnOtherStatement(
+  ownerStatementId: string | null | undefined,
+  currentStatementId: string | null | undefined
+): boolean {
+  if (!ownerStatementId) return false
+  if (!currentStatementId) return true
+  return ownerStatementId !== currentStatementId
+}
+
+/** Whether the Include checkbox may be toggled for this statement period. */
+export function canIncludeBookingOnStatement(
+  ownerStatementId: string | null | undefined,
+  currentStatementId: string | null | undefined,
+  includeMode: "statement-eligible" | "next-month"
+): boolean {
+  if (includeMode === "next-month") return false
+  return !isBookingOnOtherStatement(ownerStatementId, currentStatementId)
+}
+
 export function applyPayoutFilter<T extends { owner_statement_id: string | null }>(
   rows: T[],
-  filter: PayoutFilter
+  filter: PayoutFilter,
+  currentStatementId?: string | null
 ): T[] {
-  if (filter === "unpaid") return rows.filter((b) => !b.owner_statement_id)
-  if (filter === "paid") return rows.filter((b) => b.owner_statement_id)
+  if (filter === "unpaid") {
+    return rows.filter((b) => !isBookingOnOtherStatement(b.owner_statement_id, currentStatementId))
+  }
+  if (filter === "paid") {
+    return rows.filter((b) => isBookingOnOtherStatement(b.owner_statement_id, currentStatementId))
+  }
   return rows
 }
 
@@ -63,6 +88,8 @@ export function clientBookingRowToInput(b: ClientStatementBookingRow): Statement
     payment_processing_fee: decimalLike(b.payment_processing_fee),
     total_payout: decimalLike(b.total_payout),
     gross_revenue: decimalLike(b.gross_revenue),
+    is_manual_override: b.is_manual_override,
+    manual_monthly_note: b.manual_monthly_note ?? null,
   }
 }
 
@@ -94,7 +121,28 @@ export function serializeStatementBookingRow(
     payment_processing_fee: str(b.payment_processing_fee),
     total_payout: str(b.total_payout),
     gross_revenue: str(b.gross_revenue),
+    is_manual_override: b.is_manual_override,
+    manual_monthly_note: b.manual_monthly_note ?? null,
   }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+/** Pro-rated financial display for a booking in a statement month. */
+export function proratedAmountForMonth(
+  value: string | null,
+  booking: ClientStatementBookingRow,
+  year: number,
+  month: number
+): string | null {
+  if (value == null || value === "") return value
+  const n = Number(value)
+  if (!Number.isFinite(n)) return value
+  const meta = prorationMetaForBookingInMonth(clientBookingRowToInput(booking), year, month)
+  if (!meta?.isProrated) return value
+  return String(round2(n * meta.ratio))
 }
 
 export function isStatementActiveBooking(status: BookingStatus): boolean {

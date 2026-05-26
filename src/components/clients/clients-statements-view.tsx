@@ -10,10 +10,26 @@ import {
   flattenClientsToOverviewRows,
   type StatementOverviewRow,
 } from "@/components/clients/clients-statements-overview"
+import { ClientsStatementsPortfolioSummary } from "@/components/clients/clients-statements-portfolio-summary"
 import { StatementBookingSubsection } from "@/components/financials/statement-booking-subsection"
-import { ClientsMonthToolbarButton } from "@/components/clients/clients-month-toolbar"
+import { StatementBookingOverrideDialog } from "@/components/clients/statement-booking-override-dialog"
+import {
+  StatementManualOverrideBadge,
+  StatementProrationBadge,
+} from "@/components/clients/statement-proration-badge"
+import { ClientsMonthToolbar, ClientsMonthToolbarButton } from "@/components/clients/clients-month-toolbar"
 import { StatementAdditionalExpenses } from "@/components/clients/statement-additional-expenses"
 import { StatementPayoutSummary } from "@/components/clients/statement-payout-summary"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -29,7 +45,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/components/ui/toast"
 import {
+  buildBaseAutomaticExpenseItems,
+  reconcileAutomaticExpenses,
+} from "@/lib/clients/automatic-statement-expenses"
+import {
   applyPayoutFilter,
+  canIncludeBookingOnStatement,
   clientBookingRowToInput,
   formatStatementMonthYear,
   isStatementActiveBooking,
@@ -37,22 +58,30 @@ import {
 } from "@/lib/clients/statement-booking-ui"
 import { formatMoneyZar } from "@/lib/owner-statement/format-money"
 import {
-  checkInInCalendarMonth,
+  bookingHasNightsInCalendarMonth,
   nextCalendarMonth,
-  previousCalendarMonth,
 } from "@/lib/owner-statement/statement-eligibility"
 import {
   isStatementPeriodTab,
   periodTabToMonthYear,
   type StatementPeriodTab,
 } from "@/lib/clients/statement-period-tabs"
+import {
+  applyPreviewTotalsToStatement,
+  buildOwnerStatementPreview,
+} from "@/lib/owner-statement/statement-preview"
 import { buildPropertyStatement } from "@/lib/statement-calculator"
-import type { ClientStatementBookingRow, ClientStatementSummary, PropertyStatement } from "@/types/statement"
+import type {
+  ClientStatementBookingRow,
+  ClientStatementSummary,
+  PropertyStatement,
+} from "@/types/statement"
 
-function checkInInMonth(booking: ClientStatementBookingRow, year: number, month: number): boolean {
-  const d = parseISO(booking.check_in)
-  if (Number.isNaN(d.getTime())) return false
-  return checkInInCalendarMonth(d, year, month)
+function bookingHasNightsInMonth(booking: ClientStatementBookingRow, year: number, month: number): boolean {
+  const checkIn = parseISO(booking.check_in)
+  const checkOut = parseISO(booking.check_out)
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) return false
+  return bookingHasNightsInCalendarMonth(checkIn, checkOut, year, month)
 }
 
 const PdfViewer = dynamic(
@@ -115,6 +144,8 @@ function PropertyStatementPanel({
 }) {
   const [generating, setGenerating] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
+  const [finalizeOpen, setFinalizeOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewUrl, setPreviewUrl] = useState("")
   const [fileViewerOpen, setFileViewerOpen] = useState(false)
@@ -123,19 +154,25 @@ function PropertyStatementPanel({
   const [payoutFilter, setPayoutFilter] = useState<PayoutFilter>("all")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(statement.lines.map((l) => l.bookingId)))
   const [manualExpenses, setManualExpenses] = useState(statement.manualExpenses)
+  const [automaticExpenses, setAutomaticExpenses] = useState(statement.automaticExpenses)
+  const [excludedAutomaticIds, setExcludedAutomaticIds] = useState<Set<string>>(() => new Set())
   const [existingStatementId, setExistingStatementId] = useState<string | null>(
     statement.existingStatementId
   )
   const [existingStatementStatus, setExistingStatementStatus] = useState<
     PropertyStatement["existingStatementStatus"]
   >(statement.existingStatementStatus)
+  const [overrideDialogOpen, setOverrideDialogOpen] = useState(false)
+  const [overrideBooking, setOverrideBooking] = useState<ClientStatementBookingRow | null>(null)
 
+  const bookingOverrides = statement.bookingOverrides ?? []
   const periodLabel = formatPeriod(month, year)
-  const prevPeriod = useMemo(() => previousCalendarMonth(year, month), [year, month])
   const nextPeriod = useMemo(() => nextCalendarMonth(year, month), [year, month])
 
   useEffect(() => {
     setManualExpenses(statement.manualExpenses)
+    setAutomaticExpenses(statement.automaticExpenses)
+    setExcludedAutomaticIds(new Set())
     setExistingStatementId(statement.existingStatementId)
     setExistingStatementStatus(statement.existingStatementStatus)
     const fromStatement =
@@ -154,42 +191,51 @@ function PropertyStatementPanel({
     [statement.bookings]
   )
 
-  const bookingsCheckInThisMonth = useMemo(() => {
+  const baseAutomaticExpenses = useMemo(() => {
+    const selected = activeBookings.filter((b) => selectedIds.has(b.id))
+    return buildBaseAutomaticExpenseItems(
+      selected.map((b) => ({
+        id: b.id,
+        guestName: b.guest_name,
+        cleaningFee: Number(b.cleaning_fee ?? 0),
+      })),
+      statement.welcomePackFeePerBooking
+    )
+  }, [activeBookings, selectedIds, statement.welcomePackFeePerBooking])
+
+  useEffect(() => {
+    setAutomaticExpenses((prev) => {
+      const merged = reconcileAutomaticExpenses(baseAutomaticExpenses, prev)
+      return merged.filter((e) => !excludedAutomaticIds.has(e.id))
+    })
+  }, [baseAutomaticExpenses, excludedAutomaticIds])
+
+  const bookingsWithNightsThisMonth = useMemo(() => {
     return activeBookings
-      .filter((b) => checkInInMonth(b, year, month))
+      .filter((b) => bookingHasNightsInMonth(b, year, month))
       .sort((a, b) => parseISO(a.check_in).getTime() - parseISO(b.check_in).getTime())
   }, [activeBookings, year, month])
 
-  const bookingsCheckInPrevMonth = useMemo(() => {
-    if (!prevPeriod) return []
-    return activeBookings
-      .filter((b) => checkInInMonth(b, prevPeriod.year, prevPeriod.month))
-      .sort((a, b) => parseISO(a.check_in).getTime() - parseISO(b.check_in).getTime())
-  }, [activeBookings, prevPeriod])
-
-  const bookingsCheckInNextMonth = useMemo(() => {
+  const bookingsWithNightsNextMonth = useMemo(() => {
     if (!nextPeriod) return []
     return activeBookings
-      .filter((b) => checkInInMonth(b, nextPeriod.year, nextPeriod.month))
+      .filter((b) => bookingHasNightsInMonth(b, nextPeriod.year, nextPeriod.month))
       .sort((a, b) => parseISO(a.check_in).getTime() - parseISO(b.check_in).getTime())
   }, [activeBookings, nextPeriod])
 
   const displayBookings = useMemo(
-    () => applyPayoutFilter(bookingsCheckInThisMonth, payoutFilter),
-    [bookingsCheckInThisMonth, payoutFilter]
-  )
-  const displayBookingsPrev = useMemo(
-    () => applyPayoutFilter(bookingsCheckInPrevMonth, payoutFilter),
-    [bookingsCheckInPrevMonth, payoutFilter]
+    () => applyPayoutFilter(bookingsWithNightsThisMonth, payoutFilter, existingStatementId),
+    [bookingsWithNightsThisMonth, payoutFilter, existingStatementId]
   )
   const displayBookingsNext = useMemo(
-    () => applyPayoutFilter(bookingsCheckInNextMonth, payoutFilter),
-    [bookingsCheckInNextMonth, payoutFilter]
+    () => applyPayoutFilter(bookingsWithNightsNextMonth, payoutFilter, existingStatementId),
+    [bookingsWithNightsNextMonth, payoutFilter, existingStatementId]
   )
 
   const selectedStatement = useMemo(() => {
     const selected = activeBookings.filter((b) => selectedIds.has(b.id))
-    return buildPropertyStatement({
+    const bookingInputs = selected.map(clientBookingRowToInput)
+    const base = buildPropertyStatement({
       propertyId: statement.propertyId,
       propertyName: statement.propertyName,
       month,
@@ -197,13 +243,25 @@ function PropertyStatementPanel({
       commissionPercentProperty: statement.managementFeePercent,
       managementFeeType: statement.managementFeeType,
       welcomePackFeePerBooking: statement.welcomePackFeePerBooking,
-      bookings: selected.map(clientBookingRowToInput),
+      bookings: bookingInputs,
       manualExpenses,
       existingStatementId,
       existingStatementStatus,
       hasPdf: statement.hasPdf,
       isVirtualClient: statement.isVirtualClient,
+      bookingOverrides,
     })
+    const preview = buildOwnerStatementPreview({
+      month,
+      year,
+      commissionPercentProperty: statement.managementFeePercent,
+      welcomePackFeePerBooking: statement.welcomePackFeePerBooking,
+      bookings: bookingInputs,
+      manualExpenses,
+      automaticExpenses,
+      bookingOverrides,
+    })
+    return applyPreviewTotalsToStatement(base, preview)
   }, [
     activeBookings,
     selectedIds,
@@ -211,8 +269,10 @@ function PropertyStatementPanel({
     month,
     year,
     manualExpenses,
+    automaticExpenses,
     existingStatementId,
     existingStatementStatus,
+    bookingOverrides,
   ])
 
   const toggleBooking = (id: string) => {
@@ -224,22 +284,33 @@ function PropertyStatementPanel({
     })
   }
 
-  const selectAllUnpaid = () => {
-    const unpaidThis = bookingsCheckInThisMonth.filter((b) => !b.owner_statement_id)
-    const unpaidPrev = bookingsCheckInPrevMonth.filter((b) => !b.owner_statement_id)
-    setSelectedIds(new Set([...unpaidThis, ...unpaidPrev].map((b) => b.id)))
+  const openOverrideForBooking = (bookingId: string) => {
+    const row = activeBookings.find((b) => b.id === bookingId)
+    if (!row) return
+    setOverrideBooking(row)
+    setOverrideDialogOpen(true)
   }
 
-  const selectAllUnpaidPrev = () => {
-    const unpaidPrev = bookingsCheckInPrevMonth.filter((b) => !b.owner_statement_id)
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      for (const b of unpaidPrev) next.add(b.id)
-      return next
-    })
+  const isIncludeSelectable = useCallback(
+    (b: ClientStatementBookingRow) =>
+      canIncludeBookingOnStatement(b.owner_statement_id, existingStatementId, "statement-eligible"),
+    [existingStatementId]
+  )
+
+  const selectAllUnpaid = () => {
+    const eligibleThis = bookingsWithNightsThisMonth.filter(isIncludeSelectable)
+    setSelectedIds(new Set(eligibleThis.map((b) => b.id)))
   }
 
   const clearSelection = () => setSelectedIds(new Set())
+
+  const automaticExpensePayload = () =>
+    automaticExpenses.map(({ id, description, qty, unitPrice }) => ({
+      id,
+      description,
+      qty,
+      unitPrice,
+    }))
 
   const statementPayload = () => ({
     clientId,
@@ -248,6 +319,7 @@ function PropertyStatementPanel({
     year,
     bookingIds: Array.from(selectedIds),
     statementId: existingStatementId,
+    automaticExpenseLines: automaticExpensePayload(),
   })
 
   const saveDraft = async () => {
@@ -284,6 +356,37 @@ function PropertyStatementPanel({
       toast.error("Failed to save draft.")
     } finally {
       setSavingDraft(false)
+    }
+  }
+
+  const confirmFinalize = async () => {
+    setFinalizeOpen(false)
+    if (selectedIds.size === 0) {
+      toast.error("Select at least one booking to include.")
+      return
+    }
+    setFinalizing(true)
+    try {
+      const res = await fetch("/api/clients/statements/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(statementPayload()),
+      })
+      const data = (await res.json()) as { statementId?: string; error?: string }
+      if (!res.ok) {
+        toast.error(data.error ?? "Failed to finalize statement.")
+        return
+      }
+      if (data.statementId) {
+        setExistingStatementId(data.statementId)
+      }
+      setExistingStatementStatus("FINAL")
+      toast.success("Statement saved as final.")
+      onStatementUpdated()
+    } catch {
+      toast.error("Failed to finalize statement.")
+    } finally {
+      setFinalizing(false)
     }
   }
 
@@ -385,6 +488,7 @@ function PropertyStatementPanel({
   }
 
   const preview = selectedStatement
+  const hasProratedLines = preview.lines.some((line) => line.isProrated)
 
   return (
     <div className="space-y-8">
@@ -397,8 +501,7 @@ function PropertyStatementPanel({
       {existingStatementStatus === "FINAL" && statement.hasPdf ? (
         <p className="rounded-lg border border-teal-200 bg-teal-50/80 px-4 py-3 text-sm text-teal-900">
           A finalized statement is on file for this period. Change bookings or expenses below, then use{" "}
-          <strong>Update &amp; download PDF</strong> to replace it (same as property Financials → Edit
-          statement).
+          <strong>Update &amp; download PDF</strong> to replace it.
         </p>
       ) : null}
 
@@ -409,6 +512,7 @@ function PropertyStatementPanel({
           disabled={
             savingDraft ||
             generating ||
+            finalizing ||
             selectedIds.size === 0 ||
             statement.isVirtualClient
           }
@@ -417,10 +521,21 @@ function PropertyStatementPanel({
           {savingDraft ? <Loader2 className="size-4 animate-spin" /> : null}
           {existingStatementStatus === "FINAL" ? "Revert to draft" : "Save as draft"}
         </Button>
+        {existingStatementStatus !== "FINAL" ? (
+          <Button
+            type="button"
+            className="bg-emerald-700 hover:bg-emerald-800"
+            disabled={generating || savingDraft || finalizing || selectedIds.size === 0}
+            onClick={() => setFinalizeOpen(true)}
+          >
+            {finalizing ? <Loader2 className="size-4 animate-spin" /> : null}
+            Save as final
+          </Button>
+        ) : null}
         <Button
           type="button"
           className="bg-emerald-700 hover:bg-emerald-800"
-          disabled={generating || savingDraft || selectedIds.size === 0}
+          disabled={generating || savingDraft || finalizing || selectedIds.size === 0}
           onClick={downloadPdf}
         >
           {generating ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -429,7 +544,7 @@ function PropertyStatementPanel({
         <Button
           type="button"
           variant="outline"
-          disabled={generating || savingDraft || selectedIds.size === 0}
+          disabled={generating || savingDraft || finalizing || selectedIds.size === 0}
           onClick={previewPdf}
         >
           Preview PDF
@@ -438,7 +553,7 @@ function PropertyStatementPanel({
           <Button
             type="button"
             variant="outline"
-            disabled={generating || savingDraft}
+            disabled={generating || savingDraft || finalizing}
             onClick={() => void viewOnFilePdf()}
           >
             View on file
@@ -466,7 +581,9 @@ function PropertyStatementPanel({
             <p className="text-xs text-muted-foreground">
               Same rules as property Financials: tick <strong>Include</strong> for this period, then generate a PDF.
               Paid bookings are already on a finalized statement. Carry-in from the previous month can be included on
-              this statement.
+              this statement. If pro-rated CSV amounts do not match your owner statement, click{" "}
+              <strong>Edit amounts</strong> under the guest name (or use the <strong>Edit</strong>{" "}
+              button in the Amounts column).
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -493,43 +610,36 @@ function PropertyStatementPanel({
         </div>
 
         <StatementBookingSubsection
-          title={`Check-in ${formatStatementMonthYear(month, year)}`}
-          description="Primary stays for the selected statement month."
+          title={`Stays with nights in ${formatStatementMonthYear(month, year)}`}
+          description="Bookings with occupied nights in the selected statement month. Long stays are pro-rated by nights."
           rows={displayBookings}
           canSelect
           selectedIds={selectedIds}
           onToggle={toggleBooking}
           includeMode="statement-eligible"
-          emptyMessage="No active bookings with check-in in this month (for the current payout filter)."
+          currentStatementId={existingStatementId}
+          statementYear={year}
+          statementMonth={month}
+          bookingOverrides={bookingOverrides}
+          canEditOverrides={!statement.isVirtualClient}
+          onEditOverride={(b) => {
+            setOverrideBooking(b)
+            setOverrideDialogOpen(true)
+          }}
+          emptyMessage="No active bookings with occupied nights in this month (for the current payout filter)."
         />
 
         <StatementBookingSubsection
-          title={`Previous month — check-in ${formatStatementMonthYear(prevPeriod.month, prevPeriod.year)}`}
-          description="Optional carry-in: include these on this period’s statement when payout aligns with the month above."
-          rows={displayBookingsPrev}
-          canSelect
-          selectedIds={selectedIds}
-          onToggle={toggleBooking}
-          includeMode="statement-eligible"
-          greyed
-          emptyMessage="No active bookings in the previous calendar month (for the current payout filter)."
-          headerActions={
-            <Button type="button" variant="outline" size="sm" onClick={selectAllUnpaidPrev}>
-              Add all unpaid (carry-in)
-            </Button>
-          }
-        />
-
-        <StatementBookingSubsection
-          title={`Next month — check-in ${formatStatementMonthYear(nextPeriod.month, nextPeriod.year)}`}
+          title={`Next month — nights in ${formatStatementMonthYear(nextPeriod.month, nextPeriod.year)}`}
           description="Upcoming stays for planning. Change the month/year above to generate a statement for that period."
           rows={displayBookingsNext}
           canSelect
           selectedIds={selectedIds}
           onToggle={toggleBooking}
           includeMode="next-month"
+          currentStatementId={existingStatementId}
           greyed
-          emptyMessage="No active bookings in the next calendar month (for the current payout filter)."
+          emptyMessage="No active bookings with occupied nights in the next calendar month (for the current payout filter)."
         />
       </section>
 
@@ -541,6 +651,7 @@ function PropertyStatementPanel({
           Line items for selected bookings
         </h3>
       {preview.lines.length > 0 ? (
+        <>
         <div className="overflow-x-auto rounded-lg border border-slate-100">
           <Table>
             <TableHeader>
@@ -555,12 +666,27 @@ function PropertyStatementPanel({
                 <TableHead className="text-right">Booking fees</TableHead>
                 <TableHead className="text-right">Mgmt fee</TableHead>
                 <TableHead className="text-right">Bookings payout</TableHead>
+                <TableHead className="w-[72px]">Edit</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {preview.lines.map((line) => (
                 <TableRow key={line.bookingId} className="border-b border-slate-100">
-                  <TableCell>{line.guestName}</TableCell>
+                  <TableCell>
+                    <span className="font-medium">{line.guestName}</span>
+                    {line.isManualOverride && line.manualNote ? (
+                      <StatementManualOverrideBadge note={line.manualNote} />
+                    ) : line.isProrated && line.nightsInMonth != null && line.totalStayNights != null ? (
+                      <StatementProrationBadge
+                        checkIn={line.checkIn}
+                        checkOut={line.checkOut}
+                        nights={line.nightsInMonth}
+                        totalNights={line.totalStayNights}
+                        statementMonth={month}
+                        statementYear={year}
+                      />
+                    ) : null}
+                  </TableCell>
                   <TableCell>{formatShortDate(line.checkIn)}</TableCell>
                   <TableCell>{formatShortDate(line.checkOut)}</TableCell>
                   <TableCell className="text-right">{line.nights}</TableCell>
@@ -577,6 +703,23 @@ function PropertyStatementPanel({
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatMoneyZar(line.bookingPayout > 0 ? line.bookingPayout : line.netToOwner)}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={statement.isVirtualClient}
+                      title={
+                        statement.isVirtualClient
+                          ? "Assign a client to this property before editing amounts."
+                          : undefined
+                      }
+                      onClick={() => openOverrideForBooking(line.bookingId)}
+                    >
+                      Edit
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -601,10 +744,18 @@ function PropertyStatementPanel({
                 <TableCell className="text-right tabular-nums">
                   {formatMoneyZar(preview.totals.totalBookingsPayout)}
                 </TableCell>
+                <TableCell />
               </TableRow>
             </TableBody>
           </Table>
         </div>
+        {hasProratedLines ? (
+          <p className="mt-2 text-xs italic text-muted-foreground">
+            One or more bookings span multiple months. Amounts in this table are pro-rated by occupied
+            nights in {periodLabel} — not the full booking value from Uplisting.
+          </p>
+        ) : null}
+        </>
       ) : (
         <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-sm text-slate-600">
           No bookings selected for {periodLabel}. Tick Include in step 2 to add stays to this statement.
@@ -622,15 +773,35 @@ function PropertyStatementPanel({
           month={month}
           year={year}
           manualExpenses={manualExpenses}
-          automaticExpenses={preview.automaticExpenses}
+          automaticExpenses={automaticExpenses}
+          defaultAutomaticExpenses={baseAutomaticExpenses}
           welcomePackFeePerBooking={statement.welcomePackFeePerBooking}
           selectedBookingCount={preview.lines.length}
           disabled={statement.isVirtualClient}
           onManualExpenseAdded={(expense) =>
             setManualExpenses((prev) => [...prev, expense])
           }
+          onManualExpenseUpdated={(expense) =>
+            setManualExpenses((prev) => prev.map((e) => (e.id === expense.id ? expense : e)))
+          }
           onManualExpenseRemoved={(id) =>
             setManualExpenses((prev) => prev.filter((e) => e.id !== id))
+          }
+          onAutomaticExpenseChange={(expense) => {
+            setExcludedAutomaticIds((prev) => {
+              const next = new Set(prev)
+              next.delete(expense.id)
+              return next
+            })
+            setAutomaticExpenses((prev) => {
+              if (prev.some((e) => e.id === expense.id)) {
+                return prev.map((e) => (e.id === expense.id ? expense : e))
+              }
+              return [...prev, expense]
+            })
+          }}
+          onAutomaticExpenseRemove={(id) =>
+            setExcludedAutomaticIds((prev) => new Set(prev).add(id))
           }
         />
       </section>
@@ -659,6 +830,40 @@ function PropertyStatementPanel({
           hideTrigger
         />
       ) : null}
+
+      <StatementBookingOverrideDialog
+        open={overrideDialogOpen}
+        onOpenChange={setOverrideDialogOpen}
+        clientId={clientId}
+        propertyId={statement.propertyId}
+        month={month}
+        year={year}
+        booking={overrideBooking}
+        existingOverride={
+          overrideBooking
+            ? (bookingOverrides.find((o) => o.booking_id === overrideBooking.id) ?? null)
+            : null
+        }
+        commissionPercent={statement.managementFeePercent}
+        managementFeeType={statement.managementFeeType}
+        onSaved={onStatementUpdated}
+      />
+
+      <AlertDialog open={finalizeOpen} onOpenChange={setFinalizeOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save statement as final?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A PDF will be generated and saved on file. Selected bookings will be marked as paid on this
+              statement and excluded from future drafts.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmFinalize()}>Save as final</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -737,6 +942,16 @@ export function ClientsStatementsView() {
     const params = new URLSearchParams()
     params.set("month", String(m))
     params.set("year", String(y))
+    router.replace(`/clients/statements?${params.toString()}`)
+  }
+
+  const setEditPeriod = (m: number, y: number) => {
+    if (!editClientId) return
+    const params = new URLSearchParams()
+    params.set("client", editClientId)
+    params.set("month", String(m))
+    params.set("year", String(y))
+    if (editPropertyId) params.set("property", editPropertyId)
     router.replace(`/clients/statements?${params.toString()}`)
   }
 
@@ -867,18 +1082,22 @@ export function ClientsStatementsView() {
             </div>
           ) : (
             <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex flex-wrap items-start gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToOverview}>
                   <ArrowLeft className="mr-1 size-4" />
                   All statements
                 </Button>
+                <ClientsMonthToolbar
+                  compact
+                  month={month}
+                  year={year}
+                  onMonthChange={(m) => setEditPeriod(m, year)}
+                  onYearChange={(y) => setEditPeriod(month, y)}
+                />
               </div>
               <div>
                 <h2 className="text-2xl font-semibold text-slate-900">{selectedClient.clientName}</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {formatPeriod(month, year)}
-                  {selectedClient.properties.length > 1 ? ` · ${activeProperty.propertyName}` : null}
-                </p>
+                <p className="mt-1 text-sm text-slate-500">{activeProperty.propertyName}</p>
                 {selectedClient.clientEmail ? (
                   <p className="text-sm text-slate-500">{selectedClient.clientEmail}</p>
                 ) : null}
@@ -924,16 +1143,24 @@ export function ClientsStatementsView() {
             </div>
           )
         ) : (
-          <ClientsStatementsOverview
-            periodTab={periodTab}
-            onPeriodTabChange={setPeriodTab}
-            customPeriod={{ month, year }}
-            onCustomPeriodChange={setCustomPeriod}
-            rows={overviewRows}
-            loading={loading}
-            onOpenStatement={openStatementEditor}
-            onDownloadPdf={(row) => void downloadOverviewPdf(row)}
-          />
+          <>
+            <ClientsStatementsPortfolioSummary
+              clients={clients}
+              month={month}
+              year={year}
+              loading={loading}
+            />
+            <ClientsStatementsOverview
+              periodTab={periodTab}
+              onPeriodTabChange={setPeriodTab}
+              customPeriod={{ month, year }}
+              onCustomPeriodChange={setCustomPeriod}
+              rows={overviewRows}
+              loading={loading}
+              onOpenStatement={openStatementEditor}
+              onDownloadPdf={(row) => void downloadOverviewPdf(row)}
+            />
+          </>
         )}
       </div>
     </div>

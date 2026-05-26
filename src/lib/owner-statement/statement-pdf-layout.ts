@@ -6,6 +6,23 @@ import "server-only"
  */
 export const STATEMENT_PDF_SAFE_INSET = 14
 
+/** Horizontal padding for body sections inside the page safe zone (bookings table, etc.). */
+export const STATEMENT_PDF_CONTENT_HORIZONTAL_PADDING = 36
+
+/** Inner horizontal padding for full-bleed bands so content aligns with body sections. */
+export const STATEMENT_PDF_BLEED_CONTENT_HORIZONTAL_PADDING =
+  STATEMENT_PDF_SAFE_INSET + STATEMENT_PDF_CONTENT_HORIZONTAL_PADDING
+
+/** Space between the physical page top and bleed header content (logo / titles). */
+export const STATEMENT_PDF_HEADER_TOP_PADDING = 10
+
+/** Negative margins so full-bleed bands span the page width with aligned inner content. */
+export const STATEMENT_PDF_BLEED_BLOCK_MARGINS = {
+  marginTop: -STATEMENT_PDF_SAFE_INSET,
+  marginLeft: -STATEMENT_PDF_SAFE_INSET,
+  marginRight: -STATEMENT_PDF_SAFE_INSET,
+} as const
+
 /** Approximate height of one table data row (guest + amounts). */
 const STATEMENT_PDF_TABLE_ROW_HEIGHT = 56
 
@@ -19,8 +36,8 @@ export const STATEMENT_PDF_SECTION_MIN_PRESENCE = 88 + STATEMENT_PDF_SAFE_INSET
 /** Minimum space for the financial summary / payout block. */
 export const STATEMENT_PDF_SUMMARY_MIN_PRESENCE = 120 + STATEMENT_PDF_SAFE_INSET
 
-/** Height of the fixed footer band (border + text). */
-export const STATEMENT_PDF_FOOTER_HEIGHT = 28
+/** Height of the fixed footer band (up to three rows + borders). */
+export const STATEMENT_PDF_FOOTER_HEIGHT = 72
 
 /** Gap between flowing body content and the fixed footer. */
 export const STATEMENT_PDF_FOOTER_CONTENT_GAP = 10

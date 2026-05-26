@@ -10,11 +10,16 @@ import {
   mergeManualLinesWithAutomatic,
 } from "@/lib/clients/automatic-statement-expenses"
 import { buildSnapshotV1 } from "@/lib/owner-statement/compute"
+import { getCompanySettingsForPdf } from "@/lib/company-settings"
 import { renderOwnerStatementPdf } from "@/lib/owner-statement/render-pdf"
-import { checkInAllowedOnOwnerStatement } from "@/lib/owner-statement/statement-eligibility"
+import { bookingHasNightsInCalendarMonth } from "@/lib/owner-statement/statement-eligibility"
 import type { OwnerStatementSnapshotV1 } from "@/lib/owner-statement/types"
 import { prisma } from "@/lib/prisma"
-import { getAnalyticsChannelLabel } from "@/lib/property-booking-analytics"
+import {
+  allocationsForStatementMonth,
+  bookingToSnapshotRow,
+  type StatementBookingInput,
+} from "@/lib/statement-calculator"
 import { deleteFile, uploadFile } from "@/lib/supabase/storage"
 
 const STATEMENTS_BUCKET = "documents"
@@ -67,6 +72,7 @@ async function assertCanManageStatements() {
 function revalidateStatementPaths(propertyId: string) {
   revalidatePath(`/dashboard/properties/${propertyId}`)
   revalidatePath(`/owner-portal/${propertyId}/statements`)
+  revalidatePath("/clients/statements")
 }
 
 async function buildSnapshotFromPayload(
@@ -112,9 +118,9 @@ async function buildSnapshotFromPayload(
     if (!ACTIVE.has(b.status)) {
       throw new Error(`Booking "${b.guest_name}" is not active for statements.`)
     }
-    if (!checkInAllowedOnOwnerStatement(b.check_in, payload.year, payload.month)) {
+    if (!bookingHasNightsInCalendarMonth(b.check_in, b.check_out, payload.year, payload.month)) {
       throw new Error(
-        `Booking "${b.guest_name}" check-in must fall in the statement month or the previous calendar month.`
+        `Booking "${b.guest_name}" must have occupied nights in the statement month.`
       )
     }
     if (b.owner_statement_id != null) {
@@ -151,39 +157,12 @@ async function buildSnapshotFromPayload(
     }
   })
 
-  const num = (v: { toString: () => string } | null | undefined) =>
-    v != null ? Number(v) : 0
-
-  const snapshotBookings = bookings.map((b) => {
-    const checkIn = b.check_in
-    const checkOut = b.check_out
-    const numNights = Math.max(
-      0,
-      Math.round((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24))
-    )
-    const commission = num(b.commission)
-    const commissionTax = num(b.commission_tax)
-    return {
-      id: b.id,
-      guest_name: b.guest_name,
-      check_in: b.check_in.toISOString(),
-      check_out: b.check_out.toISOString(),
-      num_nights: numNights,
-      channel_label: getAnalyticsChannelLabel(b.channel_name, b.source),
-      accommodation_total: num(b.accommodation_total),
-      gross_revenue: num(b.gross_revenue) > 0 ? num(b.gross_revenue) : undefined,
-      discount: num(b.discount),
-      extra_guest_charge: num(b.extra_guest_charge),
-      cleaning_fee: num(b.cleaning_fee),
-      extra_charges: num(b.extra_charges),
-      upsells: num(b.upsells),
-      booking_taxes: num(b.booking_taxes),
-      channel_commission: commission + commissionTax,
-      total_management_fee: num(b.total_management_fee),
-      payment_processing_fee: num(b.payment_processing_fee),
-      total_payout: num(b.total_payout),
-    }
-  })
+  const bookingInputs = bookings as StatementBookingInput[]
+  const snapshotBookings = allocationsForStatementMonth(
+    bookingInputs,
+    payload.year,
+    payload.month
+  ).map((a) => bookingToSnapshotRow(a.booking, a))
 
   const automaticLines = buildAutomaticExpenseManualLines(
     snapshotBookings.map((b) => ({
@@ -306,6 +285,8 @@ export async function previewOwnerStatementPdf(raw: unknown): Promise<{
       address: true,
       city: true,
       suburb: true,
+      unit_number: true,
+      building_name: true,
       right_stay_commission_percent: true,
       welcome_pack_fee: true,
       owner: { select: { full_name: true } },
@@ -321,13 +302,20 @@ export async function previewOwnerStatementPdf(raw: unknown): Promise<{
     property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
 
   const snapshot = await buildSnapshotFromPayload(payload, commissionProp, welcomePack)
+  const companySettings = await getCompanySettingsForPdf()
 
-  const buffer = await renderOwnerStatementPdf(snapshot, {
-    propertyName: property.name,
-    propertyAddressLine: [property.address, property.suburb, property.city].filter(Boolean).join(", "),
-    ownerName: property.owner?.full_name ?? null,
-    isFinal: false,
-  })
+  const buffer = await renderOwnerStatementPdf(
+    snapshot,
+    {
+      propertyName: property.name,
+      propertyAddressLine: [property.address, property.suburb, property.city].filter(Boolean).join(", "),
+      propertyBuildingName: property.building_name ?? null,
+      propertyUnitNumber: property.unit_number ?? null,
+      ownerName: property.owner?.full_name ?? null,
+      isFinal: false,
+    },
+    companySettings
+  )
 
   const safeSlug = property.name
     .toLowerCase()
@@ -354,6 +342,8 @@ export async function finalizeOwnerStatement(raw: unknown) {
       address: true,
       city: true,
       suburb: true,
+      unit_number: true,
+      building_name: true,
       right_stay_commission_percent: true,
       welcome_pack_fee: true,
       owner: { select: { full_name: true } },
@@ -383,12 +373,20 @@ export async function finalizeOwnerStatement(raw: unknown) {
     throw new Error("A finalized generated statement already exists for this month.")
   }
 
-  const buffer = await renderOwnerStatementPdf(snapshot, {
-    propertyName: property.name,
-    propertyAddressLine: [property.address, property.suburb, property.city].filter(Boolean).join(", "),
-    ownerName: property.owner?.full_name ?? null,
-    isFinal: true,
-  })
+  const companySettings = await getCompanySettingsForPdf()
+
+  const buffer = await renderOwnerStatementPdf(
+    snapshot,
+    {
+      propertyName: property.name,
+      propertyAddressLine: [property.address, property.suburb, property.city].filter(Boolean).join(", "),
+      propertyBuildingName: property.building_name ?? null,
+      propertyUnitNumber: property.unit_number ?? null,
+      ownerName: property.owner?.full_name ?? null,
+      isFinal: true,
+    },
+    companySettings
+  )
 
   const fileId = randomUUID()
   const storagePath = `properties/${payload.propertyId}/statements/owner-statement_${payload.year}-${String(payload.month).padStart(2, "0")}_${fileId}.pdf`

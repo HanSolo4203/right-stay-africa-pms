@@ -32,6 +32,8 @@ type ClientsMonthToolbarProps = {
   onMonthChange: (month: number) => void
   onYearChange: (year: number) => void
   trailing?: ReactNode
+  /** Omit outer card styling when embedded in another panel. */
+  compact?: boolean
 }
 
 export function ClientsMonthToolbar({
@@ -40,38 +42,52 @@ export function ClientsMonthToolbar({
   onMonthChange,
   onYearChange,
   trailing,
+  compact = false,
 }: ClientsMonthToolbarProps) {
   const now = new Date()
   const yearOptions = Array.from({ length: 6 }, (_, i) => now.getFullYear() - i)
 
+  const selects = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select value={String(month)} onValueChange={(v) => onMonthChange(Number(v))}>
+        <SelectTrigger className={compact ? "h-8 w-[130px]" : "w-[140px]"}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {MONTHS.map((label, i) => (
+            <SelectItem key={label} value={String(i + 1)}>
+              {label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select value={String(year)} onValueChange={(v) => onYearChange(Number(v))}>
+        <SelectTrigger className={compact ? "h-8 w-[90px]" : "w-[100px]"}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {yearOptions.map((y) => (
+            <SelectItem key={y} value={String(y)}>
+              {y}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {selects}
+        {trailing}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={String(month)} onValueChange={(v) => onMonthChange(Number(v))}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MONTHS.map((label, i) => (
-              <SelectItem key={label} value={String(i + 1)}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={String(year)} onValueChange={(v) => onYearChange(Number(v))}>
-          <SelectTrigger className="w-[100px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {yearOptions.map((y) => (
-              <SelectItem key={y} value={String(y)}>
-                {y}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {selects}
       {trailing}
     </div>
   )

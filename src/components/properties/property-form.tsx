@@ -60,6 +60,8 @@ const defaultValues: PropertyFormValues = {
   city: "",
   unit_number: "",
   building_name: "",
+  building_manager_email: "",
+  building_manager_phone: "",
   type: PropertyType.APARTMENT,
   bedrooms: 1,
   bathrooms: 1,
@@ -285,6 +287,71 @@ export function PropertyForm({ mode, propertyId, initialValues }: PropertyFormPr
           </section>
 
           <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
+            <h2 className="text-lg font-semibold text-slate-900">Building Information</h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="unit_number"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Unit / Apartment Number</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. Apt 4B, Unit 12" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="building_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Building Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. The Waterfront Residences" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="building_manager_email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Building Manager Email</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="email"
+                        placeholder="e.g. manager@building.co.za"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="building_manager_phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Building Manager Phone</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. +27 21 123 4567" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </section>
+
+          <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
             <h2 className="text-lg font-semibold text-slate-900">Statement settings</h2>
             <p className="text-sm text-slate-600">
               Used on client and owner statements: management fee when CSV has no fee, and welcome pack
@@ -390,34 +457,6 @@ export function PropertyForm({ mode, propertyId, initialValues }: PropertyFormPr
                           field.onChange(event.target.value === "" ? Number.NaN : Number(event.target.value))
                         }
                       />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="unit_number"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Unit Number</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Optional" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="building_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Building Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Optional" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

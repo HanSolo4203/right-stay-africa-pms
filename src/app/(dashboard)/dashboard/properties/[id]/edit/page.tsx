@@ -51,6 +51,8 @@ export default async function EditPropertyPage({ params }: EditPropertyPageProps
             city: property.city,
             unit_number: property.unit_number ?? "",
             building_name: property.building_name ?? "",
+            building_manager_email: property.building_manager_email ?? "",
+            building_manager_phone: property.building_manager_phone ?? "",
             type: property.type,
             bedrooms: property.bedrooms,
             bathrooms: property.bathrooms,

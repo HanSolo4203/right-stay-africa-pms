@@ -16,7 +16,12 @@ export async function PropertyDetailTabs({
       where: { id: propertyId },
       select: {
         id: true,
+        client_id: true,
         name: true,
+        unit_number: true,
+        building_name: true,
+        building_manager_email: true,
+        building_manager_phone: true,
         description: true,
         airbnb_listing_url: true,
         booking_com_listing_url: true,
@@ -145,6 +150,7 @@ export async function PropertyDetailTabs({
     <PropertyTabs
       activeTab={activeTab}
       propertyId={property.id}
+      clientId={property.client_id}
       owner={property.owner}
       infoGuide={
         property.info_guide
@@ -160,6 +166,12 @@ export async function PropertyDetailTabs({
             }
           : null
       }
+      buildingInfo={{
+        unit_number: property.unit_number,
+        building_name: property.building_name,
+        building_manager_email: property.building_manager_email,
+        building_manager_phone: property.building_manager_phone,
+      }}
       userRole={user?.role ?? null}
       statements={property.statements.map((item) => ({
         id: item.id,
@@ -224,15 +236,6 @@ export async function PropertyDetailTabs({
         confirmation_code: booking.confirmation_code,
         owner_statement_id: booking.owner_statement_id,
       }))}
-      propertyName={property.name}
-      propertyCommissionPercent={
-        property.right_stay_commission_percent != null
-          ? Number(property.right_stay_commission_percent)
-          : null
-      }
-      welcomePackFeePerBooking={
-        property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
-      }
       uplistingLinked={Boolean(property.uplisting_id?.trim())}
     />
   )

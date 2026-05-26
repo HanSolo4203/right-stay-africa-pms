@@ -36,6 +36,12 @@ export type OwnerStatementSnapshotBookingV1 = {
   total_management_fee: number
   payment_processing_fee: number
   total_payout: number
+  /** Present when revenue was pro-rated across calendar months. */
+  is_prorated?: boolean
+  nights_in_period?: number
+  total_stay_nights?: number
+  is_manual_override?: boolean
+  manual_note?: string
 }
 
 export type OwnerStatementManualLineV1 = {
@@ -44,6 +50,7 @@ export type OwnerStatementManualLineV1 = {
   quantity: number
   unitPrice: number
   addTenPercent: boolean
+  expenseCategory?: string | null
 }
 
 export type OwnerStatementReceiptLineV1 = {

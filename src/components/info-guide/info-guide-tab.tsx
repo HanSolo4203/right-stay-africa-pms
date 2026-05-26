@@ -22,9 +22,80 @@ type InfoGuideData = {
   notes: string | null
 }
 
+export type PropertyBuildingInfo = {
+  unit_number: string | null
+  building_name: string | null
+  building_manager_email: string | null
+  building_manager_phone: string | null
+}
+
 type InfoGuideTabProps = {
   propertyId: string
   infoGuide: InfoGuideData | null
+  buildingInfo: PropertyBuildingInfo
+}
+
+function hasBuildingInfo(building: PropertyBuildingInfo): boolean {
+  return Boolean(
+    building.unit_number?.trim() ||
+      building.building_name?.trim() ||
+      building.building_manager_email?.trim() ||
+      building.building_manager_phone?.trim()
+  )
+}
+
+function BuildingInformationSection({ building }: { building: PropertyBuildingInfo }) {
+  if (!hasBuildingInfo(building)) return null
+
+  return (
+    <Card className="bg-white">
+      <CardHeader>
+        <CardTitle className="text-base">Building Information</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {building.unit_number?.trim() ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Unit / Apartment Number
+            </p>
+            <p className="text-sm text-slate-900">{building.unit_number.trim()}</p>
+          </div>
+        ) : null}
+        {building.building_name?.trim() ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Building Name</p>
+            <p className="text-sm text-slate-900">{building.building_name.trim()}</p>
+          </div>
+        ) : null}
+        {building.building_manager_email?.trim() ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Building Manager Email
+            </p>
+            <a
+              href={`mailto:${building.building_manager_email.trim()}`}
+              className="text-sm text-slate-900 underline-offset-2 hover:underline"
+            >
+              {building.building_manager_email.trim()}
+            </a>
+          </div>
+        ) : null}
+        {building.building_manager_phone?.trim() ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Building Manager Phone
+            </p>
+            <a
+              href={`tel:${building.building_manager_phone.trim()}`}
+              className="text-sm text-slate-900 underline-offset-2 hover:underline"
+            >
+              {building.building_manager_phone.trim()}
+            </a>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
 }
 
 function displayText(value: string | null) {
@@ -38,7 +109,7 @@ function displayMaskedValue(value: string | null, revealed: boolean) {
   return "••••••••"
 }
 
-export function InfoGuideTab({ propertyId, infoGuide }: InfoGuideTabProps) {
+export function InfoGuideTab({ propertyId, infoGuide, buildingInfo }: InfoGuideTabProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isWifiPasswordVisible, setIsWifiPasswordVisible] = useState(false)
   const [isAccessCodeVisible, setIsAccessCodeVisible] = useState(false)
@@ -48,15 +119,17 @@ export function InfoGuideTab({ propertyId, infoGuide }: InfoGuideTabProps) {
 
   return (
     <>
-      {!infoGuide ? (
-        <Card className="bg-white">
-          <CardContent className="flex flex-col items-start gap-4 p-6">
-            <p className="text-sm text-slate-600">No info guide yet</p>
-            <Button onClick={() => setIsModalOpen(true)}>Set Up Info Guide</Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
+      <div className="space-y-4">
+        <BuildingInformationSection building={buildingInfo} />
+
+        {!infoGuide ? (
+          <Card className="bg-white">
+            <CardContent className="flex flex-col items-start gap-4 p-6">
+              <p className="text-sm text-slate-600">No info guide yet</p>
+              <Button onClick={() => setIsModalOpen(true)}>Set Up Info Guide</Button>
+            </CardContent>
+          </Card>
+        ) : (
           <Card className="bg-white">
             <CardHeader className="flex flex-row items-start justify-between gap-4">
               <CardTitle>Info Guide</CardTitle>
@@ -202,8 +275,8 @@ export function InfoGuideTab({ propertyId, infoGuide }: InfoGuideTabProps) {
               </Card>
             </CardContent>
           </Card>
-        </div>
-      )}
+        )}
+      </div>
 
       <InfoGuideFormModal
         propertyId={propertyId}

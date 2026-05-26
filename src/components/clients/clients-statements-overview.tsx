@@ -189,12 +189,14 @@ export function ClientsStatementsOverview({
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
         <Tabs
-          value={viewingCustom ? "" : periodTab}
+          value={viewingCustom ? "custom" : periodTab}
           onValueChange={(v) => {
+            if (v === "custom") return
             if (v) onPeriodTabChange(v as StatementPeriodTab)
           }}
         >
           <TabsList className="h-auto flex-wrap bg-white">
+            <TabsTrigger value="custom" className="hidden" aria-hidden tabIndex={-1} />
             <TabsTrigger value="previous" className="data-[state=active]:bg-slate-100">
               Previous
               <span className="ml-1.5 text-xs font-normal text-slate-500">
@@ -412,5 +414,3 @@ export function ClientsStatementsOverview({
     </div>
   )
 }
-
-// Fix missing imports - I used useState and useMemo without importing

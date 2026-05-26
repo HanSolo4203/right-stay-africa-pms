@@ -2,8 +2,21 @@
 
 import { useState } from "react"
 import { Loader2, Trash2 } from "lucide-react"
+import {
+  defaultAddTenPercentForCategory,
+  EditableExpenseCells,
+  inferExpenseCategoryFromDescription,
+} from "@/components/clients/editable-expense-cells"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -13,7 +26,12 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { toast } from "@/components/ui/toast"
+import { lineCharge } from "@/lib/owner-statement/compute"
 import { formatMoneyZar } from "@/lib/owner-statement/format-money"
+import {
+  STATEMENT_EXPENSE_CATEGORY_VALUES,
+  type StatementExpenseCategoryValue,
+} from "@/lib/validations/statement-expense"
 import type { StatementExpenseItem } from "@/types/statement"
 
 const EXPENSE_PRESETS = [
@@ -25,12 +43,9 @@ const EXPENSE_PRESETS = [
 ] as const
 
 type CreatedExpenseResponse = {
-  expense: {
-    id: string
-    description: string
-    qty: number
-    unitPrice: number
-    total: number
+  expense: StatementExpenseItem & {
+    addTenPercent?: boolean
+    expenseCategory?: string | null
   }
 }
 
@@ -41,11 +56,15 @@ type StatementAdditionalExpensesProps = {
   year: number
   manualExpenses: StatementExpenseItem[]
   automaticExpenses: StatementExpenseItem[]
+  defaultAutomaticExpenses: StatementExpenseItem[]
   welcomePackFeePerBooking: number
   selectedBookingCount: number
   disabled?: boolean
   onManualExpenseAdded: (expense: StatementExpenseItem) => void
+  onManualExpenseUpdated: (expense: StatementExpenseItem) => void
   onManualExpenseRemoved: (expenseId: string) => void
+  onAutomaticExpenseChange: (expense: StatementExpenseItem) => void
+  onAutomaticExpenseRemove: (expenseId: string) => void
 }
 
 export function StatementAdditionalExpenses({
@@ -55,23 +74,32 @@ export function StatementAdditionalExpenses({
   year,
   manualExpenses,
   automaticExpenses,
+  defaultAutomaticExpenses,
   welcomePackFeePerBooking,
   selectedBookingCount,
   disabled,
   onManualExpenseAdded,
+  onManualExpenseUpdated,
   onManualExpenseRemoved,
+  onAutomaticExpenseChange,
+  onAutomaticExpenseRemove,
 }: StatementAdditionalExpensesProps) {
   const [adding, setAdding] = useState(false)
   const [saving, setSaving] = useState(false)
   const [description, setDescription] = useState("")
   const [qty, setQty] = useState("1")
   const [unitPrice, setUnitPrice] = useState("")
+  const [addTenPercent, setAddTenPercent] = useState(false)
+  const [expenseCategory, setExpenseCategory] = useState<StatementExpenseCategoryValue>("OTHER")
+
+  const defaultById = new Map(defaultAutomaticExpenses.map((e) => [e.id, e]))
 
   const computedTotal = (() => {
     const q = Number(qty)
     const u = Number(unitPrice)
     if (!Number.isFinite(q) || !Number.isFinite(u) || q < 1 || u <= 0) return 0
-    return Math.round(q * u * 100) / 100
+    const base = Math.round(q * u * 100) / 100
+    return lineCharge(base, addTenPercent)
   })()
 
   const resetForm = () => {
@@ -79,6 +107,42 @@ export function StatementAdditionalExpenses({
     setDescription("")
     setQty("1")
     setUnitPrice("")
+    setAddTenPercent(false)
+    setExpenseCategory("OTHER")
+  }
+
+  const persistManualExpense = async (expense: StatementExpenseItem) => {
+    const res = await fetch(`/api/clients/statements/expenses/${expense.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        description: expense.description,
+        qty: expense.qty,
+        unitPrice: expense.unitPrice,
+        addTenPercent: expense.addTenPercent ?? false,
+        expenseCategory: expense.expenseCategory ?? "OTHER",
+      }),
+    })
+    const data = (await res.json()) as CreatedExpenseResponse & { error?: string }
+    if (!res.ok || !data.expense) {
+      throw new Error(data.error ?? "Failed to update expense.")
+    }
+    onManualExpenseUpdated({
+      id: data.expense.id,
+      description: data.expense.description,
+      qty: data.expense.qty,
+      unitPrice: data.expense.unitPrice,
+      total: data.expense.total,
+      addTenPercent: data.expense.addTenPercent ?? false,
+      expenseCategory: (data.expense.expenseCategory as StatementExpenseCategoryValue | null) ?? null,
+    })
+  }
+
+  const applyPreset = (label: string) => {
+    const category = inferExpenseCategoryFromDescription(label)
+    setDescription(label)
+    setExpenseCategory(category)
+    setAddTenPercent(defaultAddTenPercentForCategory(category))
   }
 
   const addExpense = async () => {
@@ -109,6 +173,8 @@ export function StatementAdditionalExpenses({
           description: description.trim(),
           qty: q,
           unitPrice: u,
+          addTenPercent,
+          expenseCategory,
         }),
       })
       const data = (await res.json()) as CreatedExpenseResponse & { error?: string }
@@ -126,6 +192,8 @@ export function StatementAdditionalExpenses({
         qty: data.expense.qty,
         unitPrice: data.expense.unitPrice,
         total: data.expense.total,
+        addTenPercent: data.expense.addTenPercent ?? false,
+        expenseCategory: (data.expense.expenseCategory as StatementExpenseCategoryValue | null) ?? null,
       })
       toast.success("Expense added.")
       resetForm()
@@ -161,7 +229,7 @@ export function StatementAdditionalExpenses({
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-slate-600">
-          Only expenses for bookings ticked in step 2. Totals feed into the summary above.
+          Only expenses for bookings ticked in step 2. Edit amounts below; totals feed into the summary above.
         </p>
         {!disabled && !adding ? (
           <Button type="button" size="sm" variant="outline" onClick={() => setAdding(true)}>
@@ -188,9 +256,9 @@ export function StatementAdditionalExpenses({
             {selectedBookingCount === 1 ? "" : "s"})
           </p>
           <p className="text-xs text-slate-500">
-            Cleaning fees from CSV per included stay.
+            Cleaning fees from CSV per included stay — editable before you save or generate.
             {welcomePackFeePerBooking > 0
-              ? ` Welcome pack: ${formatMoneyZar(welcomePackFeePerBooking)} per included booking.`
+              ? ` Welcome pack: ${formatMoneyZar(welcomePackFeePerBooking)} per included booking (default).`
               : ""}
           </p>
           <div className="overflow-x-auto rounded-lg border border-slate-100 bg-slate-50/50">
@@ -201,22 +269,30 @@ export function StatementAdditionalExpenses({
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">Unit price</TableHead>
                   <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="w-20" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {automaticExpenses.map((e) => (
                   <TableRow key={e.id}>
-                    <TableCell className="text-slate-700">{e.description}</TableCell>
-                    <TableCell className="text-right">{e.qty}</TableCell>
-                    <TableCell className="text-right">{formatMoneyZar(e.unitPrice)}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatMoneyZar(e.total)}
-                    </TableCell>
+                    <EditableExpenseCells
+                      key={`${e.id}-${e.qty}-${e.unitPrice}-${e.description}`}
+                      expense={e}
+                      disabled={disabled}
+                      showReset={defaultById.has(e.id)}
+                      onChange={onAutomaticExpenseChange}
+                      onReset={() => {
+                        const def = defaultById.get(e.id)
+                        if (def) onAutomaticExpenseChange(def)
+                      }}
+                      onRemove={() => onAutomaticExpenseRemove(e.id)}
+                    />
                   </TableRow>
                 ))}
                 <TableRow className="font-medium">
                   <TableCell colSpan={3}>Automatic expenses total</TableCell>
                   <TableCell className="text-right">{formatMoneyZar(autoTotal)}</TableCell>
+                  <TableCell />
                 </TableRow>
               </TableBody>
             </Table>
@@ -235,8 +311,10 @@ export function StatementAdditionalExpenses({
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Description</TableHead>
+                <TableHead>Category</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Unit price</TableHead>
+                <TableHead className="text-center">Service fee</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
@@ -244,24 +322,16 @@ export function StatementAdditionalExpenses({
             <TableBody>
               {manualExpenses.map((e) => (
                 <TableRow key={e.id}>
-                  <TableCell>{e.description}</TableCell>
-                  <TableCell className="text-right">{e.qty}</TableCell>
-                  <TableCell className="text-right">{formatMoneyZar(e.unitPrice)}</TableCell>
-                  <TableCell className="text-right">{formatMoneyZar(e.total)}</TableCell>
-                  <TableCell>
-                    {!disabled ? (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="size-8 text-slate-500 hover:text-red-600"
-                        disabled={saving}
-                        onClick={() => void deleteExpense(e.id)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    ) : null}
-                  </TableCell>
+                  <EditableExpenseCells
+                    expense={e}
+                    disabled={disabled}
+                    showCategoryControls
+                    onChange={onManualExpenseUpdated}
+                    onPersist={disabled ? undefined : persistManualExpense}
+                    onRemove={
+                      disabled ? undefined : () => void deleteExpense(e.id)
+                    }
+                  />
                 </TableRow>
               ))}
               {adding ? (
@@ -281,13 +351,40 @@ export function StatementAdditionalExpenses({
                             size="sm"
                             variant="ghost"
                             className="h-7 px-2 text-xs"
-                            onClick={() => setDescription(label)}
+                            onClick={() => applyPreset(label)}
                           >
                             {label}
                           </Button>
                         ))}
                       </div>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={expenseCategory}
+                      onValueChange={(v) => {
+                        const cat = v as StatementExpenseCategoryValue
+                        setExpenseCategory(cat)
+                        setAddTenPercent(defaultAddTenPercentForCategory(cat))
+                      }}
+                    >
+                      <SelectTrigger className="h-8 min-w-[130px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATEMENT_EXPENSE_CATEGORY_VALUES.filter((c) => c !== "CLEANING").map(
+                          (c) => (
+                            <SelectItem key={c} value={c}>
+                              {c === "UTILITIES"
+                                ? "Electricity / utilities"
+                                : c === "MID_STAY_CLEAN"
+                                  ? "Mid-stay clean"
+                                  : c.charAt(0) + c.slice(1).toLowerCase().replace(/_/g, " ")}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
                   </TableCell>
                   <TableCell>
                     <Input
@@ -309,6 +406,20 @@ export function StatementAdditionalExpenses({
                       onChange={(ev) => setUnitPrice(ev.target.value)}
                     />
                   </TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <input
+                        id="new-expense-svc"
+                        type="checkbox"
+                        checked={addTenPercent}
+                        onChange={(ev) => setAddTenPercent(ev.target.checked)}
+                        className="size-4 rounded border-slate-300"
+                      />
+                      <Label htmlFor="new-expense-svc" className="text-xs font-normal">
+                        +10%
+                      </Label>
+                    </div>
+                  </TableCell>
                   <TableCell className="text-right text-slate-600">
                     {formatMoneyZar(computedTotal)}
                   </TableCell>
@@ -317,7 +428,7 @@ export function StatementAdditionalExpenses({
               ) : null}
               {manualExpenses.length === 0 && !adding ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-slate-500">
+                  <TableCell colSpan={7} className="text-center text-sm text-slate-500">
                     No manual expenses for this period.
                   </TableCell>
                 </TableRow>

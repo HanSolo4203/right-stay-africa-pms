@@ -31,6 +31,8 @@ export const propertySchema = z.object({
   city: z.string().min(1, "City is required."),
   unit_number: z.string().optional(),
   building_name: z.string().optional(),
+  building_manager_email: z.union([z.string().email(), z.literal("")]).optional(),
+  building_manager_phone: z.string().optional(),
   type: z.enum(PropertyType),
   bedrooms: z.number().min(1, "Bedrooms must be at least 1."),
   bathrooms: z.number().min(1, "Bathrooms must be at least 1."),

@@ -1,11 +1,42 @@
 import { NextResponse } from "next/server"
 import { assertClientsApiAccess } from "@/lib/clients/api-auth"
 import { resolveClientPropertyIds } from "@/lib/clients/statement-service"
+import { lineCharge } from "@/lib/owner-statement/compute"
 import {
   createStatementExpenseSchema,
   listStatementExpensesSchema,
 } from "@/lib/validations/statement-expense"
 import { prisma } from "@/lib/prisma"
+
+function expenseToJson(row: {
+  id: string
+  client_id: string
+  property_id: string
+  month: number
+  year: number
+  description: string
+  qty: number
+  unit_price: { toString: () => string }
+  total: { toString: () => string }
+  add_ten_percent: boolean
+  expense_category: string | null
+  created_at: Date
+}) {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    propertyId: row.property_id,
+    month: row.month,
+    year: row.year,
+    description: row.description,
+    qty: row.qty,
+    unitPrice: Number(row.unit_price),
+    total: Number(row.total),
+    addTenPercent: row.add_ten_percent,
+    expenseCategory: row.expense_category,
+    createdAt: row.created_at.toISOString(),
+  }
+}
 
 export async function GET(request: Request) {
   const user = await assertClientsApiAccess()
@@ -48,18 +79,7 @@ export async function GET(request: Request) {
     })
 
     return NextResponse.json({
-      expenses: rows.map((r) => ({
-        id: r.id,
-        clientId: r.client_id,
-        propertyId: r.property_id,
-        month: r.month,
-        year: r.year,
-        description: r.description,
-        qty: r.qty,
-        unitPrice: Number(r.unit_price),
-        total: Number(r.total),
-        createdAt: r.created_at.toISOString(),
-      })),
+      expenses: rows.map(expenseToJson),
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to load expenses."
@@ -101,7 +121,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Property does not belong to this client." }, { status: 400 })
     }
 
-    const total = Math.round(parsed.data.qty * parsed.data.unitPrice * 100) / 100
+    const base = Math.round(parsed.data.qty * parsed.data.unitPrice * 100) / 100
+    const total = lineCharge(base, parsed.data.addTenPercent ?? false)
     const created = await prisma.statementExpense.create({
       data: {
         client_id: parsed.data.clientId,
@@ -112,22 +133,13 @@ export async function POST(request: Request) {
         qty: parsed.data.qty,
         unit_price: parsed.data.unitPrice,
         total,
+        add_ten_percent: parsed.data.addTenPercent ?? false,
+        expense_category: parsed.data.expenseCategory ?? null,
       },
     })
 
     return NextResponse.json({
-      expense: {
-        id: created.id,
-        clientId: created.client_id,
-        propertyId: created.property_id,
-        month: created.month,
-        year: created.year,
-        description: created.description,
-        qty: created.qty,
-        unitPrice: Number(created.unit_price),
-        total: Number(created.total),
-        createdAt: created.created_at.toISOString(),
-      },
+      expense: expenseToJson(created),
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to create expense."

@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { Building2, FileSpreadsheet, LayoutDashboard, LogOut, Users } from "lucide-react"
+import { Building2, FileSpreadsheet, LayoutDashboard, LogOut, Settings, Users } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -35,6 +35,8 @@ export function Sidebar({ email, role }: SidebarProps) {
   const router = useRouter()
   const showImports = canManageImports(role)
 
+  const showSettings = role === "SUPER_ADMIN" || role === "PROPERTY_MANAGER"
+
   useEffect(() => {
     for (const link of links) {
       router.prefetch(link.href)
@@ -42,7 +44,10 @@ export function Sidebar({ email, role }: SidebarProps) {
     if (showImports) {
       router.prefetch("/bookings/import")
     }
-  }, [router, showImports])
+    if (showSettings) {
+      router.prefetch("/settings")
+    }
+  }, [router, showImports, showSettings])
 
   const onSignOut = async () => {
     await supabase.auth.signOut()
@@ -51,6 +56,7 @@ export function Sidebar({ email, role }: SidebarProps) {
   }
 
   const importActive = pathname === "/bookings/import" || pathname.startsWith("/bookings/import/")
+  const settingsActive = pathname === "/settings" || pathname.startsWith("/settings/")
 
   return (
     <aside className="flex h-screen w-[260px] shrink-0 flex-col border-r border-slate-200/80 bg-gradient-to-b from-slate-50 to-white shadow-[inset_-1px_0_0_0_rgb(226_232_240_/_0.6)]">
@@ -59,7 +65,7 @@ export function Sidebar({ email, role }: SidebarProps) {
         <p className="mt-0.5 text-xs text-slate-500">Portfolio management</p>
       </div>
 
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
+      <nav className="flex flex-1 flex-col space-y-0.5 overflow-y-auto px-3 py-4">
         {links.map((link) => {
           const isActive = isNavLinkActive(pathname, link.href)
           const Icon = link.icon
@@ -97,6 +103,25 @@ export function Sidebar({ email, role }: SidebarProps) {
                 className={cn("size-4 shrink-0", importActive ? "text-emerald-700" : "text-slate-500")}
               />
               Booking CSV import
+            </Link>
+          </div>
+        ) : null}
+
+        {showSettings ? (
+          <div className="mt-auto border-t border-slate-200/80 pt-4">
+            <Link
+              href="/settings"
+              className={cn(
+                "flex items-center gap-3 rounded-lg border-l-[3px] py-2.5 pr-3 pl-[9px] text-sm font-medium transition-all",
+                settingsActive
+                  ? "border-l-emerald-600 bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70"
+                  : "border-l-transparent text-slate-600 hover:bg-white/70 hover:text-slate-900"
+              )}
+            >
+              <Settings
+                className={cn("size-4 shrink-0", settingsActive ? "text-emerald-700" : "text-slate-500")}
+              />
+              Settings
             </Link>
           </div>
         ) : null}
