@@ -10,7 +10,8 @@
     "predev": "prisma generate",
     "dev": "next dev",
     "dev:clean": "sh -c 'lsof -ti:3000,3001 | xargs kill -9 2>/dev/null || true; rm -rf .next' && npm run dev",
-    "build": "prisma generate && prisma migrate deploy && next build",
+    "build": "prisma generate && node scripts/prisma-migrate-deploy.mjs && next build",
+    "db:migrate": "prisma migrate deploy",
     "start": "next start",
     "lint": "eslint",
     "test": "npx tsx --test src/lib/clients/portfolio-period-summary.test.ts src/lib/statement-booking-proration.test.ts"
