@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
+import { getMissingPublicEnvVars } from "@/lib/required-env"
 
 type AppRole = "SUPER_ADMIN" | "PROPERTY_MANAGER" | "OWNER"
 
@@ -17,6 +18,14 @@ function getHomePathForRole(role: AppRole | null): string {
 }
 
 export async function middleware(request: NextRequest) {
+  const missingSupabase = getMissingPublicEnvVars()
+  if (missingSupabase.length > 0) {
+    return new NextResponse(
+      `Server misconfiguration: missing ${missingSupabase.join(", ")}. Add them in Vercel → Settings → Environment Variables.`,
+      { status: 503, headers: { "content-type": "text/plain; charset=utf-8" } }
+    )
+  }
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,
