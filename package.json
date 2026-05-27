@@ -14,7 +14,7 @@
     "db:migrate": "prisma migrate deploy",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx --test src/lib/clients/portfolio-period-summary.test.ts src/lib/statement-booking-proration.test.ts"
+    "test": "npx tsx --test src/lib/clients/portfolio-period-summary.test.ts src/lib/statement-booking-proration.test.ts src/lib/validations/manual-booking.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

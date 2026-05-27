@@ -836,6 +836,9 @@ function BookingsTable({
                 share)
               </Text>
             ) : null}
+            {row.is_full_payment ? (
+              <Text style={styles.prorationLine}>Full CSV payment attributed to {periodMonthName}</Text>
+            ) : null}
             {row.is_manual_override && row.manual_note ? (
               <Text style={styles.prorationLine}>Manual override: {row.manual_note}</Text>
             ) : null}
@@ -989,7 +992,8 @@ function StatementFinancialSection({
         {hasProratedBookings && periodMonthName ? (
           <Text style={styles.prorationFootnote}>
             One or more bookings span multiple months. Amounts above are pro-rated by occupied nights in{" "}
-            {periodMonthName} — not the full booking value from Uplisting.
+            {periodMonthName} — not the full booking value from Uplisting, and only nights in this month
+            count toward occupancy.
           </Text>
         ) : null}
         {totalDiscounts > 0 ? (
@@ -1205,7 +1209,7 @@ export function OwnerStatementPdfDocument({
                   compact
                   label="OCCUPANCY"
                   value={`${occupancyRate.toFixed(1)}%`}
-                  sub={`${bookedNights} of ${daysInMonth} nights booked`}
+                  sub={`${bookedNights} of ${daysInMonth} nights in ${periodMonthName}`}
                   occupancyBar={occupancyRate}
                 />
                 <KpiCard

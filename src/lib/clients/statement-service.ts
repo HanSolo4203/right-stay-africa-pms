@@ -52,6 +52,80 @@ const ACTIVE = new Set<BookingStatus>([
 
 const bookingSelect = statementBookingSelect
 
+function propertyStatementSelect(month: number, year: number) {
+  return {
+    id: true,
+    name: true,
+    right_stay_commission_percent: true,
+    management_fee_type: true,
+    welcome_pack_fee: true,
+    bookings: {
+      where: { status: { in: [...ACTIVE] } },
+      select: bookingSelect,
+    },
+    statements: {
+      where: { month, year, source: StatementSource.GENERATED },
+      select: {
+        id: true,
+        status: true,
+        file_url: true,
+        file_name: true,
+        snapshot: true,
+      },
+      orderBy: { created_at: "desc" as const },
+      take: 1,
+    },
+  }
+}
+
+/** Load one client (or virtual unassigned property) for statement editing — avoids portfolio-wide queries. */
+export async function loadClientStatementsForPeriod(
+  clientId: string,
+  month: number,
+  year: number
+): Promise<ClientStatementSummary | null> {
+  if (clientId.startsWith("property:")) {
+    const propertyId = clientId.slice("property:".length)
+    const p = await prisma.property.findUnique({
+      where: { id: propertyId },
+      select: {
+        ...propertyStatementSelect(month, year),
+        owner: { select: { full_name: true, email: true } },
+      },
+    })
+    if (!p) return null
+    const ownerName = p.owner?.full_name?.trim()
+    const label = ownerName ? `${ownerName} — ${p.name}` : `No owner — ${p.name}`
+    return {
+      clientId,
+      clientName: label,
+      clientEmail: p.owner?.email ?? "",
+      clientStatus: ClientStatus.ACTIVE,
+      properties: [await propertyToStatement(p, clientId, month, year, true)],
+    }
+  }
+
+  const c = await prisma.client.findUnique({
+    where: { id: clientId },
+    include: {
+      properties: {
+        select: propertyStatementSelect(month, year),
+      },
+    },
+  })
+  if (!c) return null
+
+  return {
+    clientId: c.id,
+    clientName: c.name,
+    clientEmail: c.email,
+    clientStatus: c.status,
+    properties: await Promise.all(
+      c.properties.map((p) => propertyToStatement(p, c.id, month, year, false))
+    ),
+  }
+}
+
 export async function loadClientsWithStatements(
   month: number,
   year: number
@@ -60,33 +134,7 @@ export async function loadClientsWithStatements(
     orderBy: [{ status: "asc" }, { name: "asc" }],
     include: {
       properties: {
-        select: {
-          id: true,
-          name: true,
-          right_stay_commission_percent: true,
-          management_fee_type: true,
-          welcome_pack_fee: true,
-          bookings: {
-            where: { status: { in: [...ACTIVE] } },
-            select: bookingSelect,
-          },
-          statements: {
-            where: {
-              month,
-              year,
-              source: StatementSource.GENERATED,
-            },
-            select: {
-              id: true,
-              status: true,
-              file_url: true,
-              file_name: true,
-              snapshot: true,
-            },
-            orderBy: { created_at: "desc" },
-            take: 1,
-          },
-        },
+        select: propertyStatementSelect(month, year),
       },
     },
   })
@@ -94,22 +142,8 @@ export async function loadClientsWithStatements(
   const unassigned = await prisma.property.findMany({
     where: { client_id: null },
     select: {
-      id: true,
-      name: true,
-      right_stay_commission_percent: true,
-      management_fee_type: true,
-      welcome_pack_fee: true,
+      ...propertyStatementSelect(month, year),
       owner: { select: { full_name: true, email: true } },
-      bookings: {
-        where: { status: { in: [...ACTIVE] } },
-        select: bookingSelect,
-      },
-      statements: {
-        where: { month, year, source: StatementSource.GENERATED },
-        select: { id: true, status: true, file_url: true, file_name: true, snapshot: true },
-        orderBy: { created_at: "desc" },
-        take: 1,
-      },
     },
     orderBy: { name: "asc" },
   })
@@ -194,12 +228,12 @@ async function propertyToStatement(
     p.right_stay_commission_percent != null
       ? Number(p.right_stay_commission_percent)
       : null
-  const expenses = isVirtualClient
-    ? []
-    : await loadStatementExpenses(clientId, p.id, month, year)
   const welcomePack =
     p.welcome_pack_fee != null ? Number(p.welcome_pack_fee) : 0
-  const bookingOverrides = await loadBookingOverrides(p.id, month, year)
+  const [expenses, bookingOverrides] = await Promise.all([
+    isVirtualClient ? Promise.resolve([]) : loadStatementExpenses(clientId, p.id, month, year),
+    loadBookingOverrides(p.id, month, year),
+  ])
 
   const snap =
     existing?.snapshot != null && isOwnerStatementSnapshotV1(existing.snapshot)
@@ -542,7 +576,7 @@ export async function generatePropertyStatement(input: {
     existingGenerated.file_url &&
     (input.bookingIds == null || input.bookingIds.length === 0)
   ) {
-    throw new Error("Select bookings and use Update & download to change a finalized statement.")
+    throw new Error("Select bookings and use Update to change a finalized statement.")
   }
 
   const automaticExpenseLines = input.automaticExpenseLines?.map((e) =>

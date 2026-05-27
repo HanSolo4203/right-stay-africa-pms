@@ -6,8 +6,7 @@ const nextConfig = {
     "prisma",
     "@supabase/ssr",
     "@supabase/supabase-js",
-    "@react-pdf/renderer",
-    "radix-ui",
+    // Do not externalize @react-pdf/renderer or radix-ui — they must share the app's React instance.
     "@radix-ui/react-label",
     "@radix-ui/react-slot",
   ],

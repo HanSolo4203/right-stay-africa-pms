@@ -1,6 +1,7 @@
 "use client"
 
 import { BookingSource, BookingStatus } from "@prisma/client"
+import { isManualBookingEntry } from "@/lib/booking-source-label"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -24,6 +25,7 @@ export type BookingListRow = {
   notes: string | null
   channel_name: string | null
   csv_imported_at: string | null
+  uplisting_id: string | null
   accommodation_total: string | null
   discount: string | null
   extra_guest_charge: string | null
@@ -139,6 +141,14 @@ export function BookingList({ bookings, onRowClick }: BookingListProps) {
                         title="Imported from CSV"
                       >
                         CSV
+                      </Badge>
+                    ) : isManualBookingEntry(booking) ? (
+                      <Badge
+                        variant="outline"
+                        className="border-slate-300 bg-slate-50 text-[10px] text-slate-700"
+                        title="Entered manually"
+                      >
+                        Manual
                       </Badge>
                     ) : null}
                   </div>

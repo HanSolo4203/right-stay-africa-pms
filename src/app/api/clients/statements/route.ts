@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import { assertClientsApiAccess } from "@/lib/clients/api-auth"
-import { loadClientsWithStatements } from "@/lib/clients/statement-service"
+import {
+  loadClientStatementsForPeriod,
+  loadClientsWithStatements,
+} from "@/lib/clients/statement-service"
 
 export async function GET(request: Request) {
   const user = await assertClientsApiAccess()
@@ -20,14 +23,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid year." }, { status: 400 })
   }
 
+  const clientId = searchParams.get("clientId")?.trim() || null
+
   try {
-    const clients = await loadClientsWithStatements(month, year)
+    const clients = clientId
+      ? await (async () => {
+          const client = await loadClientStatementsForPeriod(clientId, month, year)
+          return client ? [client] : []
+        })()
+      : await loadClientsWithStatements(month, year)
     return NextResponse.json({
-    month,
-    year,
-    clients,
-    defaultMonth: now.getMonth() + 1,
-    defaultYear: now.getFullYear(),
+      month,
+      year,
+      clients,
+      defaultMonth: now.getMonth() + 1,
+      defaultYear: now.getFullYear(),
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to load statements."

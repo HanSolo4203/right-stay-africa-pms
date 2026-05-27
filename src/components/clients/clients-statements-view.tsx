@@ -3,17 +3,19 @@
 import { parseISO } from "date-fns"
 import dynamic from "next/dynamic"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ArrowLeft, Loader2, Plus } from "lucide-react"
 import {
   ClientsStatementsOverview,
   flattenClientsToOverviewRows,
   type StatementOverviewRow,
 } from "@/components/clients/clients-statements-overview"
 import { ClientsStatementsPortfolioSummary } from "@/components/clients/clients-statements-portfolio-summary"
+import { CreateBookingModal } from "@/components/bookings/create-booking-modal"
 import { StatementBookingSubsection } from "@/components/financials/statement-booking-subsection"
 import { StatementBookingOverrideDialog } from "@/components/clients/statement-booking-override-dialog"
 import {
+  StatementFullPaymentBadge,
   StatementManualOverrideBadge,
   StatementProrationBadge,
 } from "@/components/clients/statement-proration-badge"
@@ -121,6 +123,30 @@ type StatementsResponse = {
   year: number
 }
 
+function statementsCacheKey(month: number, year: number, clientId?: string | null) {
+  return clientId ? `${clientId}:${year}-${month}` : `all:${year}-${month}`
+}
+
+function mergePropertyStatement(
+  data: StatementsResponse,
+  clientId: string,
+  updated: PropertyStatement
+): StatementsResponse {
+  return {
+    ...data,
+    clients: data.clients.map((c) =>
+      c.clientId !== clientId
+        ? c
+        : {
+            ...c,
+            properties: c.properties.map((p) =>
+              p.propertyId === updated.propertyId ? updated : p
+            ),
+          }
+    ),
+  }
+}
+
 function formatMgmtFeeLabel(line: PropertyStatement["lines"][0], statement: PropertyStatement) {
   const pct = line.managementFeePercent ?? statement.managementFeePercent
   if (statement.managementFeeType === "percentage" && pct != null) {
@@ -140,7 +166,7 @@ function PropertyStatementPanel({
   statement: PropertyStatement
   month: number
   year: number
-  onStatementUpdated: () => void
+  onStatementUpdated: (updated?: PropertyStatement) => void | Promise<void>
 }) {
   const [generating, setGenerating] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
@@ -164,8 +190,24 @@ function PropertyStatementPanel({
   >(statement.existingStatementStatus)
   const [overrideDialogOpen, setOverrideDialogOpen] = useState(false)
   const [overrideBooking, setOverrideBooking] = useState<ClientStatementBookingRow | null>(null)
+  const [createBookingOpen, setCreateBookingOpen] = useState(false)
+  const [pendingBookings, setPendingBookings] = useState<ClientStatementBookingRow[]>([])
 
   const bookingOverrides = statement.bookingOverrides ?? []
+
+  useEffect(() => {
+    setPendingBookings((prev) =>
+      prev.filter((b) => !statement.bookings.some((row) => row.id === b.id))
+    )
+  }, [statement.bookings])
+
+  const allBookings = useMemo(() => {
+    const byId = new Map(statement.bookings.map((b) => [b.id, b]))
+    for (const b of pendingBookings) {
+      byId.set(b.id, b)
+    }
+    return [...byId.values()]
+  }, [statement.bookings, pendingBookings])
   const periodLabel = formatPeriod(month, year)
   const nextPeriod = useMemo(() => nextCalendarMonth(year, month), [year, month])
 
@@ -183,12 +225,20 @@ function PropertyStatementPanel({
             .map((b) => b.id)
     setSelectedIds(new Set(fromStatement))
     setPayoutFilter("all")
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset when statement period or property changes
-  }, [month, year, statement.propertyId, statement.existingStatementId])
+  }, [
+    month,
+    year,
+    statement.propertyId,
+    statement.existingStatementId,
+    statement.bookings,
+    statement.bookingOverrides,
+    statement.manualExpenses,
+    statement.automaticExpenses,
+  ])
 
   const activeBookings = useMemo(
-    () => statement.bookings.filter((b) => isStatementActiveBooking(b.status)),
-    [statement.bookings]
+    () => allBookings.filter((b) => isStatementActiveBooking(b.status)),
+    [allBookings]
   )
 
   const baseAutomaticExpenses = useMemo(() => {
@@ -338,7 +388,11 @@ function PropertyStatementPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(statementPayload()),
       })
-      const data = (await res.json()) as { statementId?: string; error?: string }
+      const data = (await res.json()) as {
+        statementId?: string
+        statement?: PropertyStatement
+        error?: string
+      }
       if (!res.ok) {
         toast.error(data.error ?? "Failed to save draft.")
         return
@@ -351,7 +405,7 @@ function PropertyStatementPanel({
         existingStatementStatus === "FINAL" ? "Reverted to draft — finalize again when ready." : "Draft saved."
       )
       setExistingStatementStatus("DRAFT")
-      onStatementUpdated()
+      onStatementUpdated(data.statement)
     } catch {
       toast.error("Failed to save draft.")
     } finally {
@@ -372,7 +426,11 @@ function PropertyStatementPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(statementPayload()),
       })
-      const data = (await res.json()) as { statementId?: string; error?: string }
+      const data = (await res.json()) as {
+        statementId?: string
+        statement?: PropertyStatement
+        error?: string
+      }
       if (!res.ok) {
         toast.error(data.error ?? "Failed to finalize statement.")
         return
@@ -382,11 +440,45 @@ function PropertyStatementPanel({
       }
       setExistingStatementStatus("FINAL")
       toast.success("Statement saved as final.")
-      onStatementUpdated()
+      onStatementUpdated(data.statement)
     } catch {
       toast.error("Failed to finalize statement.")
     } finally {
       setFinalizing(false)
+    }
+  }
+
+  const updateFinalStatement = async () => {
+    if (selectedIds.size === 0) {
+      toast.error("Select at least one booking to include.")
+      return
+    }
+    setGenerating(true)
+    try {
+      const res = await fetch("/api/clients/statements/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(statementPayload()),
+      })
+      const data = (await res.json()) as {
+        statementId?: string
+        statement?: PropertyStatement
+        error?: string
+      }
+      if (!res.ok) {
+        toast.error(data.error ?? "Failed to update statement.")
+        return
+      }
+      if (data.statementId) {
+        setExistingStatementId(data.statementId)
+      }
+      setExistingStatementStatus("FINAL")
+      toast.success("Statement updated.")
+      onStatementUpdated(data.statement)
+    } catch {
+      toast.error("Failed to update statement.")
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -422,11 +514,7 @@ function PropertyStatementPanel({
       a.download = filename
       a.click()
       URL.revokeObjectURL(url)
-      toast.success(
-        existingStatementStatus === "FINAL"
-          ? "Statement updated and downloaded."
-          : "Statement finalized and downloaded."
-      )
+      toast.success("Statement finalized and downloaded.")
       onStatementUpdated()
     } catch {
       toast.error("Failed to generate PDF.")
@@ -497,11 +585,24 @@ function PropertyStatementPanel({
         periodLabel={periodLabel}
         selectedBookingCount={preview.lines.length}
       />
+      {preview.totals.totalNights > 0 ? (
+        <p className="text-xs text-slate-500">
+          Occupancy in {formatStatementMonthYear(month, year)}:{" "}
+          <span className="font-medium text-slate-900">
+            {(
+              (preview.totals.totalNights / new Date(year, month, 0).getDate()) *
+              100
+            ).toFixed(1)}
+            %
+          </span>{" "}
+          · {preview.totals.totalNights} of {new Date(year, month, 0).getDate()} nights in this month.
+        </p>
+      ) : null}
 
       {existingStatementStatus === "FINAL" && statement.hasPdf ? (
         <p className="rounded-lg border border-teal-200 bg-teal-50/80 px-4 py-3 text-sm text-teal-900">
           A finalized statement is on file for this period. Change bookings or expenses below, then use{" "}
-          <strong>Update &amp; download PDF</strong> to replace it.
+          <strong>Update</strong> to replace it.
         </p>
       ) : null}
 
@@ -536,10 +637,12 @@ function PropertyStatementPanel({
           type="button"
           className="bg-emerald-700 hover:bg-emerald-800"
           disabled={generating || savingDraft || finalizing || selectedIds.size === 0}
-          onClick={downloadPdf}
+          onClick={() =>
+            void (existingStatementStatus === "FINAL" ? updateFinalStatement() : downloadPdf())
+          }
         >
           {generating ? <Loader2 className="size-4 animate-spin" /> : null}
-          {existingStatementStatus === "FINAL" ? "Update & download PDF" : "Download PDF"}
+          {existingStatementStatus === "FINAL" ? "Update" : "Download PDF"}
         </Button>
         <Button
           type="button"
@@ -580,17 +683,16 @@ function PropertyStatementPanel({
             <h3 className="mt-1 text-sm font-semibold text-slate-900">Bookings (CSV)</h3>
             <p className="text-xs text-muted-foreground">
               Same rules as property Financials: tick <strong>Include</strong> for this period, then generate a PDF.
-              Paid bookings are already on a finalized statement. Carry-in from the previous month can be included on
-              this statement. If pro-rated CSV amounts do not match your owner statement, click{" "}
-              <strong>Edit amounts</strong> under the guest name (or use the <strong>Edit</strong>{" "}
-              button in the Amounts column).
+              Paid bookings are already on a finalized statement. For stays spanning months, choose{" "}
+              <strong>Pro-rated</strong> or <strong>Full payment</strong> per booking, or use{" "}
+              <strong>Custom amounts</strong> when figures differ from CSV.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1">
               <span className="text-xs font-medium text-muted-foreground">Payout status</span>
               <Select value={payoutFilter} onValueChange={(v) => setPayoutFilter(v as PayoutFilter)}>
-                <SelectTrigger className="w-[180px] bg-white">
+                <SelectTrigger className="w-[180px] bg-white text-slate-900">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -611,7 +713,7 @@ function PropertyStatementPanel({
 
         <StatementBookingSubsection
           title={`Stays with nights in ${formatStatementMonthYear(month, year)}`}
-          description="Bookings with occupied nights in the selected statement month. Long stays are pro-rated by nights."
+          description="Bookings with occupied nights in the selected statement month. Long stays default to pro-rated by nights; use the allocation control to apply full CSV payment instead."
           rows={displayBookings}
           canSelect
           selectedIds={selectedIds}
@@ -622,6 +724,22 @@ function PropertyStatementPanel({
           statementMonth={month}
           bookingOverrides={bookingOverrides}
           canEditOverrides={!statement.isVirtualClient}
+          clientId={clientId}
+          propertyId={statement.propertyId}
+          onAllocationModeChanged={onStatementUpdated}
+          headerActions={
+            !statement.isVirtualClient ? (
+              <Button
+                type="button"
+                size="sm"
+                className="bg-green-700 text-white hover:bg-green-800"
+                onClick={() => setCreateBookingOpen(true)}
+              >
+                <Plus className="mr-1 size-4" />
+                Add booking
+              </Button>
+            ) : undefined
+          }
           onEditOverride={(b) => {
             setOverrideBooking(b)
             setOverrideDialogOpen(true)
@@ -674,7 +792,9 @@ function PropertyStatementPanel({
                 <TableRow key={line.bookingId} className="border-b border-slate-100">
                   <TableCell>
                     <span className="font-medium">{line.guestName}</span>
-                    {line.isManualOverride && line.manualNote ? (
+                    {line.isFullPayment ? (
+                      <StatementFullPaymentBadge />
+                    ) : line.isManualOverride && line.manualNote ? (
                       <StatementManualOverrideBadge note={line.manualNote} />
                     ) : line.isProrated && line.nightsInMonth != null && line.totalStayNights != null ? (
                       <StatementProrationBadge
@@ -831,6 +951,28 @@ function PropertyStatementPanel({
         />
       ) : null}
 
+      <CreateBookingModal
+        open={createBookingOpen}
+        onOpenChange={setCreateBookingOpen}
+        propertyId={statement.propertyId}
+        onCreated={async (result) => {
+          setPendingBookings((prev) => {
+            const rest = prev.filter((b) => b.id !== result.booking.id)
+            return [...rest, result.booking]
+          })
+          const checkIn = parseISO(result.check_in)
+          const checkOut = parseISO(result.check_out)
+          if (
+            !Number.isNaN(checkIn.getTime()) &&
+            !Number.isNaN(checkOut.getTime()) &&
+            bookingHasNightsInCalendarMonth(checkIn, checkOut, year, month)
+          ) {
+            setSelectedIds((prev) => new Set([...prev, result.id]))
+          }
+          await onStatementUpdated()
+        }}
+      />
+
       <StatementBookingOverrideDialog
         open={overrideDialogOpen}
         onOpenChange={setOverrideDialogOpen}
@@ -907,25 +1049,66 @@ export function ClientsStatementsView() {
       : periodTabToMonthYear(periodTab)
 
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [batchLoading, setBatchLoading] = useState(false)
   const [data, setData] = useState<StatementsResponse | null>(null)
+  const statementsCacheRef = useRef<Map<string, StatementsResponse>>(new Map())
 
-  const fetchStatements = useCallback(async (options?: { silent?: boolean }) => {
-    if (!options?.silent) setLoading(true)
-    try {
-      const res = await fetch(`/api/clients/statements?month=${month}&year=${year}`)
-      const json = (await res.json()) as StatementsResponse & { error?: string }
-      if (!res.ok) {
-        toast.error(json.error ?? "Failed to load statements.")
+  const fetchStatements = useCallback(
+    async (options?: { silent?: boolean; force?: boolean }) => {
+      const scopedClientId = isEditMode && editClientId ? editClientId : null
+      const cacheKey = statementsCacheKey(month, year, scopedClientId)
+      const cached = statementsCacheRef.current.get(cacheKey)
+
+      if (cached && !options?.force) {
+        setData(cached)
+        if (options?.silent) return
+      }
+
+      if (options?.silent || (isEditMode && cached)) {
+        setRefreshing(true)
+      } else {
+        setLoading(true)
+      }
+
+      try {
+        const params = new URLSearchParams({
+          month: String(month),
+          year: String(year),
+        })
+        if (scopedClientId) params.set("clientId", scopedClientId)
+        const res = await fetch(`/api/clients/statements?${params.toString()}`)
+        const json = (await res.json()) as StatementsResponse & { error?: string }
+        if (!res.ok) {
+          toast.error(json.error ?? "Failed to load statements.")
+          return
+        }
+        statementsCacheRef.current.set(cacheKey, json)
+        setData(json)
+      } catch {
+        toast.error("Failed to load statements.")
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [month, year, isEditMode, editClientId]
+  )
+
+  const handleStatementUpdated = useCallback(
+    async (updated?: PropertyStatement) => {
+      if (updated && data && editClientId) {
+        const merged = mergePropertyStatement(data, editClientId, updated)
+        setData(merged)
+        const cacheKey = statementsCacheKey(month, year, editClientId)
+        statementsCacheRef.current.set(cacheKey, merged)
+        statementsCacheRef.current.delete(statementsCacheKey(month, year, null))
         return
       }
-      setData(json)
-    } catch {
-      toast.error("Failed to load statements.")
-    } finally {
-      if (!options?.silent) setLoading(false)
-    }
-  }, [month, year])
+      await fetchStatements({ silent: true })
+    },
+    [data, editClientId, month, year, fetchStatements]
+  )
 
   useEffect(() => {
     void fetchStatements()
@@ -990,7 +1173,8 @@ export function ClientsStatementsView() {
     }
   }
 
-  const clients = data?.clients ?? []
+  const dataReady = data != null && data.month === month && data.year === year
+  const clients = dataReady ? data.clients : []
   const overviewRows = useMemo(
     () => (data ? flattenClientsToOverviewRows(data.clients, month, year) : []),
     [data, month, year]
@@ -1067,7 +1251,7 @@ export function ClientsStatementsView() {
         ) : null}
 
         {isEditMode ? (
-          loading ? (
+          loading && !dataReady ? (
             <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
               <Skeleton className="h-8 w-48" />
               <Skeleton className="h-32 w-full" />
@@ -1081,7 +1265,18 @@ export function ClientsStatementsView() {
               <p className="text-sm text-slate-600">Client or property not found for this period.</p>
             </div>
           ) : (
-            <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div
+              className={`relative space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-opacity ${refreshing ? "pointer-events-none opacity-60" : ""}`}
+            >
+              {refreshing ? (
+                <div
+                  className="absolute top-4 right-4 flex items-center gap-2 text-xs text-slate-500"
+                  aria-live="polite"
+                >
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Updating…
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToOverview}>
                   <ArrowLeft className="mr-1 size-4" />
@@ -1119,25 +1314,25 @@ export function ClientsStatementsView() {
                       </TabsTrigger>
                     ))}
                   </TabsList>
-                  {selectedClient.properties.map((p) => (
-                    <TabsContent key={p.propertyId} value={p.propertyId} className="mt-4">
-                      <PropertyStatementPanel
-                        clientId={selectedClient.clientId}
-                        statement={p}
-                        month={month}
-                        year={year}
-                        onStatementUpdated={() => void fetchStatements({ silent: true })}
-                      />
-                    </TabsContent>
-                  ))}
+                  <div className="mt-4">
+                    <PropertyStatementPanel
+                      key={activeProperty.propertyId}
+                      clientId={selectedClient.clientId}
+                      statement={activeProperty}
+                      month={month}
+                      year={year}
+                      onStatementUpdated={handleStatementUpdated}
+                    />
+                  </div>
                 </Tabs>
               ) : (
                 <PropertyStatementPanel
+                  key={activeProperty.propertyId}
                   clientId={selectedClient.clientId}
                   statement={activeProperty}
                   month={month}
                   year={year}
-                  onStatementUpdated={() => void fetchStatements({ silent: true })}
+                  onStatementUpdated={handleStatementUpdated}
                 />
               )}
             </div>

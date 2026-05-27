@@ -51,8 +51,8 @@ export function PropertyCard({ property }: PropertyCardProps) {
       className="block"
       onMouseEnter={() => router.prefetch(href)}
     >
-      <Card className="h-full overflow-hidden pt-0 transition-shadow hover:shadow-md">
-        <div className="h-[200px] w-full overflow-hidden bg-slate-200">
+      <Card className="spike-card h-full overflow-hidden border-0 pt-0 transition-shadow hover:shadow-[var(--spike-card-shadow)]">
+        <div className="h-[200px] w-full overflow-hidden bg-[rgba(255,255,255,0.06)]">
           {property.cover_photo_url ? (
             <PropertyRemoteImage
               src={property.cover_photo_url}
@@ -60,7 +60,7 @@ export function PropertyCard({ property }: PropertyCardProps) {
               className="h-full w-full object-cover"
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-slate-500">
+            <div className="flex h-full w-full items-center justify-center spike-text-muted">
               <Building2 className="size-8" />
             </div>
           )}
@@ -69,21 +69,21 @@ export function PropertyCard({ property }: PropertyCardProps) {
         <CardContent className="space-y-3 px-4 pb-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="font-bold text-slate-900">{property.name}</h3>
-              <p className="text-sm text-slate-600">{addressLine}</p>
+              <h3 className="font-bold spike-heading">{property.name}</h3>
+              <p className="text-sm spike-text-secondary">{addressLine}</p>
             </div>
             <Badge className={statusStyles[property.status]}>
               {statusLabels[property.status]}
             </Badge>
           </div>
 
-          <p className="text-sm text-slate-600">
+          <p className="text-sm spike-text-secondary">
             {property.owner?.full_name ?? (
-              <span className="text-slate-400">No owner linked</span>
+              <span className="spike-text-muted">No owner linked</span>
             )}
           </p>
 
-          <div className="flex items-center gap-4 text-sm text-slate-600">
+          <div className="flex items-center gap-4 text-sm spike-text-secondary">
             <span className="inline-flex items-center gap-1">
               <BedSingle className="size-4" />
               {property.bedrooms}

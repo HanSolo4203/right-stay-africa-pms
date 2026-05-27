@@ -17,8 +17,17 @@ import { normalizeBookingOverrideAmounts } from "@/lib/clients/normalize-booking
 import type { ManagementFeeType } from "@/lib/clients/management-fee-calculator"
 import { clientBookingRowToInput } from "@/lib/clients/statement-booking-ui"
 import { formatMoneyZar } from "@/lib/owner-statement/format-money"
-import { allocationsForStatementMonth } from "@/lib/statement-calculator"
-import type { ClientStatementBookingRow, StatementBookingOverrideRow } from "@/types/statement"
+import { bookingFinancialsFromInput, allocationsForStatementMonth } from "@/lib/statement-calculator"
+import type {
+  ClientStatementBookingRow,
+  PropertyStatement,
+  StatementBookingOverrideRow,
+} from "@/types/statement"
+import {
+  bookingSpansMultipleMonths,
+  overrideRowToUiMode,
+  type StatementAllocationUiMode,
+} from "@/lib/clients/statement-booking-allocation-ui"
 
 type OverrideForm = {
   note: string
@@ -107,9 +116,9 @@ export function StatementBookingOverrideDialog({
   existingOverride: StatementBookingOverrideRow | null
   commissionPercent: number | null
   managementFeeType: ManagementFeeType
-  onSaved: () => void
+  onSaved: (statement?: PropertyStatement) => void
 }) {
-  const [useAutomatic, setUseAutomatic] = useState(true)
+  const [allocationMode, setAllocationMode] = useState<StatementAllocationUiMode>("prorated")
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [form, setForm] = useState<OverrideForm>(emptyForm())
   const [saving, setSaving] = useState(false)
@@ -124,25 +133,40 @@ export function StatementBookingOverrideDialog({
     return allocations[0] ?? null
   }, [booking, month, year])
 
+  const spansMonths = booking
+    ? bookingSpansMultipleMonths(booking.check_in, booking.check_out)
+    : false
+
+  const fullPaymentPreview = useMemo(() => {
+    if (!booking) return null
+    return bookingFinancialsFromInput(clientBookingRowToInput(booking))
+  }, [booking])
+
   useEffect(() => {
     if (!open || !booking) return
     if (existingOverride) {
-      setUseAutomatic(false)
-      setShowAdvanced(true)
-      setForm(overrideToForm(existingOverride))
+      setAllocationMode(overrideRowToUiMode(existingOverride))
+      setShowAdvanced(existingOverride.allocation_mode === "MANUAL")
+      setForm(
+        existingOverride.allocation_mode === "MANUAL"
+          ? overrideToForm(existingOverride)
+          : autoAllocation
+            ? allocationToForm(autoAllocation)
+            : emptyForm()
+      )
     } else if (autoAllocation) {
-      setUseAutomatic(true)
+      setAllocationMode("prorated")
       setShowAdvanced(false)
       setForm(allocationToForm(autoAllocation))
     } else {
-      setUseAutomatic(true)
+      setAllocationMode("prorated")
       setShowAdvanced(false)
       setForm(emptyForm())
     }
   }, [open, booking, existingOverride, autoAllocation])
 
   const previewAmounts = useMemo(() => {
-    if (useAutomatic || !booking) return null
+    if (allocationMode !== "manual" || !booking) return null
     try {
       return normalizeBookingOverrideAmounts({
         accommodation_total: parseAmount(form.accommodation_total),
@@ -157,7 +181,7 @@ export function StatementBookingOverrideDialog({
     } catch {
       return null
     }
-  }, [useAutomatic, booking, form, commissionPercent, managementFeeType])
+  }, [allocationMode, booking, form, commissionPercent, managementFeeType])
 
   const setField = (key: keyof OverrideForm, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -176,21 +200,34 @@ export function StatementBookingOverrideDialog({
           bookingId: booking.id,
           month,
           year,
-          useAutomaticProRation: useAutomatic,
-          note: useAutomatic ? undefined : form.note.trim(),
-          accommodation_total: useAutomatic ? undefined : parseAmount(form.accommodation_total),
-          channel_commission: useAutomatic ? undefined : parseAmount(form.channel_commission),
-          total_management_fee: useAutomatic ? undefined : parseAmount(form.total_management_fee),
-          cleaning_fee: useAutomatic ? undefined : parseAmount(form.cleaning_fee),
-          payment_processing_fee: useAutomatic ? undefined : parseAmount(form.payment_processing_fee),
-          total_payout: useAutomatic ? undefined : parseAmount(form.total_payout),
+          allocationMode,
+          note: allocationMode === "manual" ? form.note.trim() : undefined,
+          accommodation_total:
+            allocationMode === "manual" ? parseAmount(form.accommodation_total) : undefined,
+          channel_commission:
+            allocationMode === "manual" ? parseAmount(form.channel_commission) : undefined,
+          total_management_fee:
+            allocationMode === "manual" ? parseAmount(form.total_management_fee) : undefined,
+          cleaning_fee: allocationMode === "manual" ? parseAmount(form.cleaning_fee) : undefined,
+          payment_processing_fee:
+            allocationMode === "manual" ? parseAmount(form.payment_processing_fee) : undefined,
+          total_payout: allocationMode === "manual" ? parseAmount(form.total_payout) : undefined,
         }),
       })
-      const payload = (await res.json()) as { error?: string }
+      const payload = (await res.json()) as {
+        error?: string
+        statement?: PropertyStatement
+      }
       if (!res.ok) throw new Error(payload.error ?? "Failed to save override.")
-      toast.success(useAutomatic ? "Reverted to automatic pro-ration." : "Statement amounts updated.")
+      toast.success(
+        allocationMode === "prorated"
+          ? "Using pro-rated amounts for this month."
+          : allocationMode === "full_payment"
+            ? "Using full CSV payment for this month."
+            : "Statement amounts updated."
+      )
       onOpenChange(false)
-      onSaved()
+      onSaved(payload.statement)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save override.")
     } finally {
@@ -205,11 +242,14 @@ export function StatementBookingOverrideDialog({
       const res = await fetch(`/api/clients/statements/overrides/${existingOverride.id}`, {
         method: "DELETE",
       })
-      const payload = (await res.json()) as { error?: string }
+      const payload = (await res.json()) as {
+        error?: string
+        statement?: PropertyStatement
+      }
       if (!res.ok) throw new Error(payload.error ?? "Failed to remove override.")
       toast.success("Override removed.")
       onOpenChange(false)
-      onSaved()
+      onSaved(payload.statement)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to remove override.")
     } finally {
@@ -256,32 +296,49 @@ export function StatementBookingOverrideDialog({
                   <input
                     type="radio"
                     name="override-mode"
-                    checked={useAutomatic}
+                    checked={allocationMode === "prorated"}
                     onChange={() => {
-                      setUseAutomatic(true)
+                      setAllocationMode("prorated")
                       if (autoAllocation) setForm(allocationToForm(autoAllocation))
                     }}
                   />
-                  Use automatic pro-ration from CSV
+                  Pro-rated by nights in this month
                 </label>
+                {spansMonths ? (
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="override-mode"
+                      checked={allocationMode === "full_payment"}
+                      onChange={() => setAllocationMode("full_payment")}
+                    />
+                    Full CSV payment this month
+                    {fullPaymentPreview ? (
+                      <span className="text-xs text-muted-foreground">
+                        (payout {formatMoneyZar(fullPaymentPreview.total_payout)})
+                      </span>
+                    ) : null}
+                  </label>
+                ) : null}
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
                   <input
                     type="radio"
                     name="override-mode"
-                    checked={!useAutomatic}
+                    checked={allocationMode === "manual"}
                     onChange={() => {
-                      setUseAutomatic(false)
+                      setAllocationMode("manual")
+                      setShowAdvanced(true)
                       if (autoAllocation && !existingOverride) {
                         setForm(allocationToForm(autoAllocation))
                       }
                     }}
                   />
-                  Enter amounts to match my statement
+                  Custom amounts to match my statement
                 </label>
               </div>
             </div>
 
-            {!useAutomatic ? (
+            {allocationMode === "manual" ? (
               <div className="space-y-3">
                 <div>
                   <Label htmlFor="override-note">Note / reason</Label>

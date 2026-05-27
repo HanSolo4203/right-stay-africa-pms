@@ -28,6 +28,8 @@ export type MonthlyAllocation = {
   booking: StatementBookingInput
   /** Set when a StatementBookingOverride exists for this month. */
   isManualOverride?: boolean
+  /** Full CSV payment attributed to this month (not pro-rated by nights). */
+  isFullPayment?: boolean
   manualNote?: string
   overrideId?: string
 }
@@ -42,6 +44,7 @@ export type ClientStatementBookingRow = {
   status: BookingStatus
   channel_name: string | null
   csv_imported_at: string | null
+  uplisting_id: string | null
   owner_statement_id: string | null
   accommodation_total: string | null
   discount: string | null
@@ -86,6 +89,8 @@ export type StatementLine = {
   totalStayNights?: number
   /** Custom amounts for this month (StatementBookingOverride). */
   isManualOverride?: boolean
+  /** Full CSV payment for this period (not pro-rated by nights). */
+  isFullPayment?: boolean
   manualNote?: string
 }
 
@@ -149,12 +154,15 @@ export type PropertyStatement = {
   bookingOverrides?: StatementBookingOverrideRow[]
 }
 
+export type StatementBookingAllocationMode = "FULL_PAYMENT" | "MANUAL"
+
 export type StatementBookingOverrideRow = {
   id: string
   booking_id: string
   property_id: string
   month: number
   year: number
+  allocation_mode: StatementBookingAllocationMode
   note: string
   accommodation_total: number | null
   discount: number | null

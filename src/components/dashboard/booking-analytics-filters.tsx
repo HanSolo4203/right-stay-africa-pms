@@ -63,16 +63,16 @@ export function BookingAnalyticsFilters({
   const end = format(today, "yyyy-MM-dd")
 
   return (
-    <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="spike-card space-y-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-slate-900">Booking analytics</h3>
+        <h3 className="text-sm font-semibold spike-heading">Filters</h3>
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
             disabled={pending}
-            className="text-xs"
+            className="border-[var(--spike-glass-border)] bg-transparent text-xs spike-text-secondary hover:bg-[var(--spike-primary-subtle)] hover:text-[var(--spike-primary)]"
             onClick={() =>
               push({
                 from: format(subDays(today, 29), "yyyy-MM-dd"),
@@ -87,7 +87,7 @@ export function BookingAnalyticsFilters({
             variant="outline"
             size="sm"
             disabled={pending}
-            className="text-xs"
+            className="border-[var(--spike-glass-border)] bg-transparent text-xs spike-text-secondary hover:bg-[var(--spike-primary-subtle)] hover:text-[var(--spike-primary)]"
             onClick={() =>
               push({
                 from: format(subDays(today, 89), "yyyy-MM-dd"),
@@ -102,7 +102,7 @@ export function BookingAnalyticsFilters({
             variant="outline"
             size="sm"
             disabled={pending}
-            className="text-xs"
+            className="border-[var(--spike-glass-border)] bg-transparent text-xs spike-text-secondary hover:bg-[var(--spike-primary-subtle)] hover:text-[var(--spike-primary)]"
             onClick={() =>
               push({
                 from: format(startOfYear(today), "yyyy-MM-dd"),
@@ -117,7 +117,7 @@ export function BookingAnalyticsFilters({
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <div className="space-y-1.5">
-          <Label htmlFor="ba-from" className="text-xs text-slate-600">
+          <Label htmlFor="ba-from" className="text-xs spike-text-muted">
             From
           </Label>
           <input
@@ -126,12 +126,12 @@ export function BookingAnalyticsFilters({
             defaultValue={initialFrom}
             key={`from-${initialFrom}`}
             disabled={pending}
-            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none focus-visible:border-green-600 focus-visible:ring-2 focus-visible:ring-green-600/20"
+            className="spike-input"
             onChange={(e) => push({ from: e.target.value })}
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="ba-to" className="text-xs text-slate-600">
+          <Label htmlFor="ba-to" className="text-xs spike-text-muted">
             To
           </Label>
           <input
@@ -140,12 +140,12 @@ export function BookingAnalyticsFilters({
             defaultValue={initialTo}
             key={`to-${initialTo}`}
             disabled={pending}
-            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none focus-visible:border-green-600 focus-visible:ring-2 focus-visible:ring-green-600/20"
+            className="spike-input"
             onChange={(e) => push({ to: e.target.value })}
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="ba-property" className="text-xs text-slate-600">
+          <Label htmlFor="ba-property" className="text-xs spike-text-muted">
             Property
           </Label>
           <select
@@ -153,7 +153,7 @@ export function BookingAnalyticsFilters({
             defaultValue={initialPropertyId}
             key={`prop-${initialPropertyId}`}
             disabled={pending}
-            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none focus-visible:border-green-600 focus-visible:ring-2 focus-visible:ring-green-600/20"
+            className="spike-input"
             onChange={(e) => push({ property: e.target.value || null })}
           >
             <option value="">All properties</option>
@@ -165,7 +165,7 @@ export function BookingAnalyticsFilters({
           </select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="ba-source" className="text-xs text-slate-600">
+          <Label htmlFor="ba-source" className="text-xs spike-text-muted">
             Channel
           </Label>
           <select
@@ -173,7 +173,7 @@ export function BookingAnalyticsFilters({
             defaultValue={initialSource}
             key={`src-${initialSource}`}
             disabled={pending}
-            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none focus-visible:border-green-600 focus-visible:ring-2 focus-visible:ring-green-600/20"
+            className="spike-input"
             onChange={(e) => push({ source: e.target.value || null })}
           >
             <option value="">All channels</option>
@@ -184,7 +184,7 @@ export function BookingAnalyticsFilters({
           </select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="ba-status" className="text-xs text-slate-600">
+          <Label htmlFor="ba-status" className="text-xs spike-text-muted">
             Status
           </Label>
           <select
@@ -194,7 +194,7 @@ export function BookingAnalyticsFilters({
             }
             key={`st-${initialStatus}`}
             disabled={pending}
-            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none focus-visible:border-green-600 focus-visible:ring-2 focus-visible:ring-green-600/20"
+            className="spike-input"
             onChange={(e) => push({ status: e.target.value === "all" ? null : e.target.value })}
           >
             {!STATUS_SELECT_VALUES.has(initialStatus) && initialStatus !== "all" ? (
@@ -209,7 +209,7 @@ export function BookingAnalyticsFilters({
           </select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="ba-scope" className="text-xs text-slate-600">
+          <Label htmlFor="ba-scope" className="text-xs spike-text-muted">
             Data scope
           </Label>
           <select
@@ -217,7 +217,7 @@ export function BookingAnalyticsFilters({
             defaultValue={initialScope}
             key={`sc-${initialScope}`}
             disabled={pending}
-            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none focus-visible:border-green-600 focus-visible:ring-2 focus-visible:ring-green-600/20"
+            className="spike-input"
             onChange={(e) => push({ scope: e.target.value === "csv" ? "csv" : null })}
           >
             <option value="all">All bookings</option>
@@ -225,7 +225,7 @@ export function BookingAnalyticsFilters({
           </select>
         </div>
       </div>
-      {pending ? <p className="text-xs text-slate-500">Updating…</p> : null}
+      {pending ? <p className="text-xs spike-text-muted">Updating…</p> : null}
     </div>
   )
 }

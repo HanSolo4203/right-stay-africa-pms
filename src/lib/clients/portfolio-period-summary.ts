@@ -8,6 +8,44 @@ import type {
   OwnerStatementExpenseComputed,
   OwnerStatementSnapshotV1,
 } from "@/lib/owner-statement/types"
+
+export type PortfolioOccupancySummary = {
+  daysInMonth: number
+  totalProperties: number
+  propertiesWithData: number
+  bookedNights: number
+  availableNights: number
+  /** 0–100 for display */
+  occupancyRatePct: number
+}
+
+export type PortfolioPropertyOccupancyRow = {
+  propertyId: string
+  propertyName: string
+  clientName: string
+  bookedNights: number
+  /** 0–100 for this property in the period */
+  occupancyRatePct: number
+}
+
+export type PortfolioPayoutSplit = {
+  ownerPayouts: number
+  rsaIncome: number
+  totalDistributed: number
+  ownerPct: number
+  rsaPct: number
+}
+
+export type PortfolioTrackAnalytics = {
+  occupancy: PortfolioOccupancySummary
+  payoutSplit: PortfolioPayoutSplit
+  propertyOccupancy: PortfolioPropertyOccupancyRow[]
+}
+
+export type PortfolioPeriodAnalytics = {
+  finalised: PortfolioTrackAnalytics
+  preview: PortfolioTrackAnalytics
+}
 import { isOwnerStatementSnapshotV1 } from "@/lib/owner-statement/types"
 import type { ClientStatementSummary, PropertyStatement } from "@/types/statement"
 
@@ -71,6 +109,7 @@ export type PortfolioPeriodSummary = {
   preview: PortfolioTrackTotals
   expenseBreakdown: PortfolioExpenseCategoryRow[]
   propertyRows: PortfolioPropertyRow[]
+  analytics: PortfolioPeriodAnalytics
 }
 
 export type PortfolioPropertyRow = {
@@ -82,10 +121,138 @@ export type PortfolioPropertyRow = {
   previewOwnerPayout: number | null
   finalRsaIncome: number | null
   previewRsaIncome: number | null
+  finalBookedNights: number | null
+  previewBookedNights: number | null
 }
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+export function portfolioDaysInMonth(month: number, year: number): number {
+  return new Date(year, month, 0).getDate()
+}
+
+export function bookedNightsFromSnapshot(snap: OwnerStatementSnapshotV1): number {
+  return snap.bookings.reduce(
+    (sum, b) => sum + (Number.isFinite(b.num_nights) ? b.num_nights : 0),
+    0
+  )
+}
+
+export function propertyOccupancyRatePct(bookedNights: number, daysInMonth: number): number {
+  if (daysInMonth <= 0) return 0
+  return round2((bookedNights / daysInMonth) * 100)
+}
+
+export function computePortfolioOccupancySummary(input: {
+  bookedNights: number
+  totalProperties: number
+  daysInMonth: number
+  propertiesWithData: number
+}): PortfolioOccupancySummary {
+  const availableNights = input.totalProperties * input.daysInMonth
+  const occupancyRatePct =
+    availableNights > 0 ? round2((input.bookedNights / availableNights) * 100) : 0
+  return {
+    daysInMonth: input.daysInMonth,
+    totalProperties: input.totalProperties,
+    propertiesWithData: input.propertiesWithData,
+    bookedNights: input.bookedNights,
+    availableNights,
+    occupancyRatePct,
+  }
+}
+
+export function computePortfolioPayoutSplit(
+  ownerPayouts: number,
+  rsaIncome: number
+): PortfolioPayoutSplit {
+  const owner = round2(ownerPayouts)
+  const rsa = round2(rsaIncome)
+  const totalDistributed = round2(owner + rsa)
+  const ownerPct = totalDistributed > 0 ? round2((owner / totalDistributed) * 100) : 0
+  const rsaPct = totalDistributed > 0 ? round2((rsa / totalDistributed) * 100) : 0
+  return { ownerPayouts: owner, rsaIncome: rsa, totalDistributed, ownerPct, rsaPct }
+}
+
+function buildPropertyOccupancyRows(
+  rows: PortfolioPropertyRow[],
+  track: "final" | "preview",
+  daysInMonth: number
+): PortfolioPropertyOccupancyRow[] {
+  return rows
+    .map((row) => {
+      const nights = track === "final" ? row.finalBookedNights : row.previewBookedNights
+      if (nights == null || nights <= 0) return null
+      return {
+        propertyId: row.propertyId,
+        propertyName: row.propertyName,
+        clientName: row.clientName,
+        bookedNights: nights,
+        occupancyRatePct: propertyOccupancyRatePct(nights, daysInMonth),
+      }
+    })
+    .filter((r): r is PortfolioPropertyOccupancyRow => r != null)
+    .sort((a, b) => b.occupancyRatePct - a.occupancyRatePct)
+}
+
+function buildPortfolioAnalytics(
+  propertyRows: PortfolioPropertyRow[],
+  totalProperties: number,
+  month: number,
+  year: number,
+  finalised: PortfolioTrackTotals & { finalisedPropertyCount: number },
+  preview: PortfolioTrackTotals
+): PortfolioPeriodAnalytics {
+  const daysInMonth = portfolioDaysInMonth(month, year)
+
+  const finalBookedNights = propertyRows.reduce(
+    (sum, row) => sum + (row.finalBookedNights ?? 0),
+    0
+  )
+  const previewBookedNights = propertyRows.reduce(
+    (sum, row) => sum + (row.previewBookedNights ?? 0),
+    0
+  )
+  const finalPropertiesWithData = propertyRows.filter(
+    (row) => row.finalBookedNights != null && row.finalBookedNights > 0
+  ).length
+  const previewPropertiesWithData = propertyRows.filter(
+    (row) => row.previewBookedNights != null && row.previewBookedNights > 0
+  ).length
+
+  const finalisedOccupancy = computePortfolioOccupancySummary({
+    bookedNights: finalBookedNights,
+    totalProperties,
+    daysInMonth,
+    propertiesWithData: finalPropertiesWithData,
+  })
+  const previewOccupancy = computePortfolioOccupancySummary({
+    bookedNights: previewBookedNights,
+    totalProperties,
+    daysInMonth,
+    propertiesWithData: previewPropertiesWithData,
+  })
+
+  return {
+    finalised: {
+      occupancy: finalisedOccupancy,
+      payoutSplit: computePortfolioPayoutSplit(
+        finalised.ownerPayouts,
+        finalised.rightStayIncome.total
+      ),
+      propertyOccupancy: buildPropertyOccupancyRows(propertyRows, "final", daysInMonth),
+    },
+    preview: {
+      occupancy: previewOccupancy,
+      payoutSplit: computePortfolioPayoutSplit(
+        preview.ownerPayouts,
+        preview.rightStayIncome.total
+      ),
+      propertyOccupancy: buildPropertyOccupancyRows(propertyRows, "preview", daysInMonth),
+    },
+  }
 }
 
 function emptyRightStayIncome(): RightStayIncomeBreakdown {
@@ -302,6 +469,8 @@ export function aggregatePortfolioFromClients(
       let previewOwnerPayout: number | null = null
       let finalRsa: number | null = null
       let previewRsa: number | null = null
+      let finalBookedNights: number | null = null
+      let previewBookedNights: number | null = null
 
       if (status === "FINAL" && snap != null) {
         finalisedPropertyCount += 1
@@ -329,6 +498,7 @@ export function aggregatePortfolioFromClients(
 
         finalOwnerPayout = totals.netToOwner
         finalRsa = computePropertyRsaIncome(totals.totalManagementFees, lineAcc)
+        finalBookedNights = bookedNightsFromSnapshot(snap)
       }
 
       if (propertyHasPreviewFigures(property)) {
@@ -359,6 +529,7 @@ export function aggregatePortfolioFromClients(
 
         previewOwnerPayout = property.totals.netToOwner
         previewRsa = computePropertyRsaIncome(property.totals.totalManagementFees, lineAcc)
+        previewBookedNights = property.totals.totalNights
       }
 
       propertyRows.push({
@@ -370,6 +541,8 @@ export function aggregatePortfolioFromClients(
         previewOwnerPayout,
         finalRsaIncome: finalRsa,
         previewRsaIncome: previewRsa,
+        finalBookedNights,
+        previewBookedNights,
       })
     }
   }
@@ -383,38 +556,49 @@ export function aggregatePortfolioFromClients(
     previewRsaIncome: previewLineAcc.rsaByCategory[category],
   }))
 
+  const finalisedTotals = {
+    ownerPayouts: finalOwnerPayouts,
+    managementFees: finalManagementFees,
+    additionalExpenses: finalAdditionalExpenses,
+    rightStayIncome: sumRightStayIncome({
+      commission: finalLineAcc.income.commission,
+      cleaning: finalLineAcc.income.cleaning,
+      welcomePack: finalLineAcc.income.welcomePack,
+      midStayClean: finalLineAcc.income.midStayClean,
+      serviceFees: finalLineAcc.income.serviceFees,
+    }),
+    propertiesWithFigures: finalPropertiesWithFigures,
+    finalisedPropertyCount,
+  }
+  const previewTotals = {
+    ownerPayouts: previewOwnerPayouts,
+    managementFees: previewManagementFees,
+    additionalExpenses: previewAdditionalExpenses,
+    rightStayIncome: sumRightStayIncome({
+      commission: previewLineAcc.income.commission,
+      cleaning: previewLineAcc.income.cleaning,
+      welcomePack: previewLineAcc.income.welcomePack,
+      midStayClean: previewLineAcc.income.midStayClean,
+      serviceFees: previewLineAcc.income.serviceFees,
+    }),
+    propertiesWithFigures: previewPropertiesWithFigures,
+  }
+
   return {
     month,
     year,
     totalProperties,
-    finalised: {
-      ownerPayouts: finalOwnerPayouts,
-      managementFees: finalManagementFees,
-      additionalExpenses: finalAdditionalExpenses,
-      rightStayIncome: sumRightStayIncome({
-        commission: finalLineAcc.income.commission,
-        cleaning: finalLineAcc.income.cleaning,
-        welcomePack: finalLineAcc.income.welcomePack,
-        midStayClean: finalLineAcc.income.midStayClean,
-        serviceFees: finalLineAcc.income.serviceFees,
-      }),
-      propertiesWithFigures: finalPropertiesWithFigures,
-      finalisedPropertyCount,
-    },
-    preview: {
-      ownerPayouts: previewOwnerPayouts,
-      managementFees: previewManagementFees,
-      additionalExpenses: previewAdditionalExpenses,
-      rightStayIncome: sumRightStayIncome({
-        commission: previewLineAcc.income.commission,
-        cleaning: previewLineAcc.income.cleaning,
-        welcomePack: previewLineAcc.income.welcomePack,
-        midStayClean: previewLineAcc.income.midStayClean,
-        serviceFees: previewLineAcc.income.serviceFees,
-      }),
-      propertiesWithFigures: previewPropertiesWithFigures,
-    },
+    finalised: finalisedTotals,
+    preview: previewTotals,
     expenseBreakdown,
     propertyRows,
+    analytics: buildPortfolioAnalytics(
+      propertyRows,
+      totalProperties,
+      month,
+      year,
+      finalisedTotals,
+      previewTotals
+    ),
   }
 }

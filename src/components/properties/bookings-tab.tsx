@@ -2,6 +2,9 @@
 
 import { useMemo, useState } from "react"
 import { BookingSource, BookingStatus } from "@prisma/client"
+import { Plus } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { CreateBookingModal } from "@/components/bookings/create-booking-modal"
 import { BookingFormModal } from "@/components/bookings/booking-form-modal"
 import { BookingList, type BookingListRow, formatChannelLabel } from "@/components/bookings/booking-list"
 import { Button } from "@/components/ui/button"
@@ -134,9 +137,11 @@ function formatMoney(amount: number) {
 }
 
 export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps) {
+  const router = useRouter()
   const [monthDate, setMonthDate] = useState(() => startOfMonth(new Date()))
   const [selectedBooking, setSelectedBooking] = useState<BookingListRow | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
 
   const canEditBookings = userRole === "SUPER_ADMIN" || userRole === "PROPERTY_MANAGER"
 
@@ -186,13 +191,41 @@ export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps
     setModalOpen(true)
   }
 
+  const createModal = (
+    <CreateBookingModal
+      open={createOpen}
+      onOpenChange={setCreateOpen}
+      propertyId={propertyId}
+      onCreated={() => router.refresh()}
+    />
+  )
+
+  const addBookingButton = canEditBookings ? (
+    <Button
+      type="button"
+      size="sm"
+      className="bg-green-700 text-white hover:bg-green-800"
+      onClick={() => setCreateOpen(true)}
+    >
+      <Plus className="mr-1 size-4" />
+      Add booking
+    </Button>
+  ) : null
+
   if (bookings.length === 0) {
     return (
-      <Card className="bg-white">
-        <CardContent className="p-6 text-sm text-slate-500">
-          No bookings yet. Use &quot;Sync from Uplisting&quot; or import a CSV to add bookings.
-        </CardContent>
-      </Card>
+      <>
+        <Card className="bg-white">
+          <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-500">
+              No bookings yet. Sync from Uplisting, import a CSV, or add a booking manually for stays
+              missing from export.
+            </p>
+            {addBookingButton}
+          </CardContent>
+        </Card>
+        {createModal}
+      </>
     )
   }
 
@@ -202,7 +235,8 @@ export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps
         <CardContent className="space-y-4 p-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-900">{monthLabel}</h3>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {addBookingButton}
               <Button type="button" size="sm" variant="outline" onClick={() => setMonthDate(addMonths(monthDate, -1))}>
                 ←
               </Button>
@@ -343,6 +377,7 @@ export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps
         booking={selectedBooking}
         canEdit={canEditBookings}
       />
+      {createModal}
     </div>
   )
 }

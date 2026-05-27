@@ -17,6 +17,7 @@ export type StatementBookingTableRow = Pick<
   | "total_payout"
   | "cleaning_fee"
   | "csv_imported_at"
+  | "uplisting_id"
   | "owner_statement_id"
 >
 
@@ -94,7 +95,7 @@ export function clientBookingRowToInput(b: ClientStatementBookingRow): Statement
 }
 
 export function serializeStatementBookingRow(
-  b: StatementBookingInput & { csv_imported_at?: Date | null }
+  b: StatementBookingInput & { csv_imported_at?: Date | null; uplisting_id?: string | null }
 ): ClientStatementBookingRow {
   const str = (v: { toString: () => string } | null | undefined) =>
     v != null ? v.toString() : null
@@ -107,6 +108,7 @@ export function serializeStatementBookingRow(
     status: b.status,
     channel_name: b.channel_name,
     csv_imported_at: b.csv_imported_at?.toISOString() ?? null,
+    uplisting_id: b.uplisting_id ?? null,
     owner_statement_id: b.owner_statement_id,
     accommodation_total: str(b.accommodation_total),
     discount: str(b.discount),

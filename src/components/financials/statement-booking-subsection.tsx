@@ -4,10 +4,17 @@ import { format, parseISO } from "date-fns"
 import { Pencil } from "lucide-react"
 import type { ReactNode } from "react"
 import { formatChannelLabel } from "@/components/bookings/booking-list"
+import { StatementAllocationModeSelect } from "@/components/clients/statement-allocation-mode-select"
 import {
+  StatementFullPaymentBadge,
   StatementManualOverrideBadge,
   StatementProrationBadge,
 } from "@/components/clients/statement-proration-badge"
+import {
+  bookingSpansMultipleMonths,
+  overrideRowToUiMode,
+} from "@/lib/clients/statement-booking-allocation-ui"
+import { isManualBookingEntry } from "@/lib/booking-source-label"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -63,6 +70,9 @@ export function StatementBookingSubsection<T extends StatementBookingTableRow>({
   bookingOverrides = [],
   onEditOverride,
   canEditOverrides = false,
+  clientId,
+  propertyId,
+  onAllocationModeChanged,
 }: {
   title: string
   description?: string
@@ -83,6 +93,9 @@ export function StatementBookingSubsection<T extends StatementBookingTableRow>({
   bookingOverrides?: StatementBookingOverrideRow[]
   onEditOverride?: (booking: ClientStatementBookingRow) => void
   canEditOverrides?: boolean
+  clientId?: string
+  propertyId?: string
+  onAllocationModeChanged?: () => void
 }) {
   return (
     <div
@@ -232,7 +245,31 @@ export function StatementBookingSubsection<T extends StatementBookingTableRow>({
                             {format(parseISO(b.check_in), "d MMM")} –{" "}
                             {format(parseISO(b.check_out), "d MMM yyyy")}
                           </p>
-                          {rowOverride ? (
+                          {includeMode === "statement-eligible" &&
+                          bookingSpansMultipleMonths(b.check_in, b.check_out) &&
+                          clientId &&
+                          propertyId &&
+                          statementYear != null &&
+                          statementMonth != null ? (
+                            <div className="mt-2 max-w-[11rem]">
+                              <StatementAllocationModeSelect
+                                value={overrideRowToUiMode(rowOverride)}
+                                clientId={clientId}
+                                propertyId={propertyId}
+                                bookingId={b.id}
+                                month={statementMonth}
+                                year={statementYear}
+                                disabled={canEditOverrides === false}
+                                onSaved={() => onAllocationModeChanged?.()}
+                                onRequestManualEdit={() =>
+                                  onEditOverride?.(b as unknown as ClientStatementBookingRow)
+                                }
+                              />
+                            </div>
+                          ) : null}
+                          {rowOverride?.allocation_mode === "FULL_PAYMENT" ? (
+                            <StatementFullPaymentBadge />
+                          ) : rowOverride?.allocation_mode === "MANUAL" ? (
                             <StatementManualOverrideBadge note={rowOverride.note} />
                           ) : prorationMeta?.isProrated &&
                             statementYear != null &&
@@ -291,6 +328,10 @@ export function StatementBookingSubsection<T extends StatementBookingTableRow>({
                       {b.csv_imported_at ? (
                         <Badge variant="outline" className="font-normal">
                           CSV
+                        </Badge>
+                      ) : isManualBookingEntry(b) ? (
+                        <Badge variant="outline" className="border-slate-300 font-normal text-slate-700">
+                          Manual
                         </Badge>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { assertClientsApiAccess } from "@/lib/clients/api-auth"
-import { generatePropertyStatement } from "@/lib/clients/statement-service"
+import {
+  generatePropertyStatement,
+  rebuildPropertyStatementForPeriod,
+} from "@/lib/clients/statement-service"
 import { statementAutomaticExpenseLineSchema } from "@/lib/validations/statement-expense"
 
 const bodySchema = z.object({
@@ -37,9 +40,16 @@ export async function POST(request: Request) {
 
   try {
     const result = await generatePropertyStatement(parsed.data)
+    const statement = await rebuildPropertyStatementForPeriod(
+      parsed.data.clientId,
+      parsed.data.propertyId,
+      parsed.data.month,
+      parsed.data.year
+    )
     return NextResponse.json({
       statementId: result.statementId,
       downloadName: result.downloadName,
+      statement,
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to finalize statement."

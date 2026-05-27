@@ -2,7 +2,6 @@
 
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useTransition } from "react"
-import { cn } from "@/lib/utils"
 import type { PortfolioMonthOffset } from "@/lib/portfolio-month-analytics"
 
 type DashboardPortfolioMonthFiltersProps = {
@@ -39,10 +38,10 @@ export function DashboardPortfolioMonthFilters({ activeOffset }: DashboardPortfo
   ]
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-medium text-slate-600">Calendar month</span>
+    <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+      <span className="text-xs font-medium spike-text-muted">Calendar month</span>
       <div
-        className="flex flex-wrap gap-1.5 rounded-lg border border-slate-200/80 bg-white/80 p-1 shadow-sm"
+        className="spike-segment-group w-full sm:w-auto"
         role="tablist"
         aria-label="Portfolio calendar month"
       >
@@ -52,20 +51,16 @@ export function DashboardPortfolioMonthFilters({ activeOffset }: DashboardPortfo
             type="button"
             role="tab"
             aria-selected={activeOffset === offset}
+            data-active={activeOffset === offset}
             disabled={pending}
             onClick={() => push(offset)}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-              activeOffset === offset
-                ? "bg-green-700 text-white shadow-sm"
-                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-            )}
+            className="spike-segment-btn"
           >
             {label}
           </button>
         ))}
       </div>
-      {pending ? <span className="text-xs text-slate-500">Updating…</span> : null}
+      {pending ? <span className="text-xs spike-text-muted">Updating…</span> : null}
     </div>
   )
 }

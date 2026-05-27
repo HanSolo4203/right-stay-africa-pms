@@ -78,6 +78,8 @@ type DashboardPortfolioAnalyticsCardProps = {
   yearLastSnapshot: PropertyAnalyticsSnapshot
   yearThis: number
   yearLast: number
+  /** When embedded in the dashboard grid, omit outer card chrome (parent provides layout). */
+  variant?: "default" | "embedded"
 }
 
 export function DashboardPortfolioAnalyticsCard({
@@ -89,6 +91,7 @@ export function DashboardPortfolioAnalyticsCard({
   yearLastSnapshot,
   yearThis,
   yearLast,
+  variant = "default",
 }: DashboardPortfolioAnalyticsCardProps) {
   const [yearStatsMode, setYearStatsMode] = useState<YearStatsMode>("this_year")
 
@@ -121,51 +124,47 @@ export function DashboardPortfolioAnalyticsCard({
     { label: "Management fees", value: formatMoney(activeYearSnapshot.managementFees), isMoney: true },
   ] as const
 
+  const cardClass = "spike-card border-0 ring-0"
+
   return (
-    <Card className="border-slate-200/80 bg-gradient-to-br from-slate-50/90 via-white to-emerald-50/40 shadow-sm ring-1 ring-slate-200/60">
-      <CardHeader className="pb-2">
-        <div>
-          <CardTitle className="text-base font-semibold text-slate-900">Portfolio analytics</CardTitle>
-          <CardDescription className="mt-1 text-slate-600">
-            Booking table: {monthSnapshot.periodLabel}. KPIs and charts below use the calendar year you select
-            (check-in date, all properties, excl. cancelled).
-          </CardDescription>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-medium text-slate-600">
+    <Card className={cardClass}>
+      {variant === "default" ? (
+        <CardHeader className="pb-2">
+          <div>
+            <CardTitle className="spike-card-title">Portfolio analytics</CardTitle>
+            <CardDescription className="mt-1 spike-text-muted">
+              Booking table: {monthSnapshot.periodLabel}. KPIs and charts below use the calendar year you select
+              (check-in date, all properties, excl. cancelled).
+            </CardDescription>
+          </div>
+        </CardHeader>
+      ) : null}
+      <CardContent className={cn("space-y-6", variant === "embedded" && "pt-5")}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-medium spike-text-muted">
             Income and totals for calendar year{" "}
-            <span className="tabular-nums text-slate-900">{activeYearSnapshot.periodLabel}</span>
+            <span className="tabular-nums spike-heading">{activeYearSnapshot.periodLabel}</span>
           </p>
           <div
-            className="flex shrink-0 flex-wrap gap-1.5 rounded-lg border border-slate-200/80 bg-white/80 p-1 shadow-sm"
+            className="spike-segment-group w-full sm:w-auto"
             role="group"
             aria-label="Year for portfolio totals"
           >
             <button
               type="button"
               aria-pressed={yearStatsMode === "this_year"}
+              data-active={yearStatsMode === "this_year"}
               onClick={() => setYearStatsMode("this_year")}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                yearStatsMode === "this_year"
-                  ? "bg-green-700 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              )}
+              className="spike-segment-btn"
             >
               This year ({yearThis})
             </button>
             <button
               type="button"
               aria-pressed={yearStatsMode === "last_year"}
+              data-active={yearStatsMode === "last_year"}
               onClick={() => setYearStatsMode("last_year")}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                yearStatsMode === "last_year"
-                  ? "bg-green-700 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              )}
+              className="spike-segment-btn"
             >
               Last year ({yearLast})
             </button>
@@ -175,12 +174,12 @@ export function DashboardPortfolioAnalyticsCard({
         <dl className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
           {metrics.map((item) => (
             <div key={item.label} className="min-w-0">
-              <dt className="text-[0.65rem] font-semibold tracking-wide text-slate-500 uppercase">
+              <dt className="text-[0.65rem] font-semibold tracking-wide spike-text-muted uppercase">
                 {item.label}
               </dt>
               <dd
                 className={cn(
-                  "mt-1 truncate font-semibold text-slate-900 tabular-nums",
+                  "mt-1 truncate font-semibold spike-heading tabular-nums",
                   item.isMoney ? "text-base sm:text-lg" : "text-lg sm:text-xl"
                 )}
               >
@@ -198,22 +197,22 @@ export function DashboardPortfolioAnalyticsCard({
           useMonthlyTrend={useMonthlyTrend}
         />
 
-        <div className="space-y-3 border-t border-slate-200/80 pt-5">
+        <div className="space-y-3 border-t border-[var(--spike-glass-border)] pt-5">
           <div>
-            <h4 className="text-sm font-semibold text-slate-900">Booking detail</h4>
-            <p className="mt-0.5 text-xs text-slate-500">
+            <h4 className="text-sm font-semibold spike-heading">Booking detail</h4>
+            <p className="mt-0.5 text-xs spike-text-muted">
               Stays with check-in in {monthSnapshot.periodLabel}. Same fields as your booking CSV / Uplisting export.
             </p>
           </div>
           {monthBookings.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-slate-200 bg-white/60 py-8 text-center text-sm text-slate-500">
+            <p className="rounded-lg border border-dashed border-[var(--spike-glass-border)] bg-[rgba(0,0,0,0.2)] py-8 text-center text-sm spike-text-muted">
               No bookings in this month.
             </p>
           ) : (
-            <div className="rounded-lg border border-slate-200/80 bg-white shadow-sm">
+            <div className="overflow-hidden rounded-lg border border-[var(--spike-glass-border)] bg-[rgba(0,0,0,0.2)]">
               <Table className="min-w-[1450px] table-fixed text-[13px]">
                 <TableHeader>
-                  <TableRow className="border-slate-200 hover:bg-transparent">
+                  <TableRow className="border-[var(--spike-glass-border)] hover:bg-transparent">
                     <TableHead className="w-[220px] min-w-[200px] whitespace-normal px-3 py-2 text-[11px] font-semibold tracking-wide align-bottom">
                       Property
                     </TableHead>
@@ -237,55 +236,58 @@ export function DashboardPortfolioAnalyticsCard({
                 </TableHeader>
                 <TableBody>
                   {monthBookings.map((row) => (
-                    <TableRow key={row.id} className="border-slate-100 odd:bg-white even:bg-slate-50/40">
+                    <TableRow
+                      key={row.id}
+                      className="border-[var(--spike-glass-border)] odd:bg-transparent even:bg-[rgba(255,255,255,0.03)]"
+                    >
                       <TableCell className="whitespace-normal break-words px-3 py-2 align-top text-[13px] leading-5">
                         <Link
                           href={`/dashboard/properties/${row.property_id}?tab=overview`}
-                          className="font-medium text-green-700 hover:text-green-800 hover:underline"
+                          className="spike-link font-medium hover:underline"
                         >
                           {row.property_name}
                         </Link>
                       </TableCell>
-                      <TableCell className="whitespace-normal break-words px-3 py-2 align-top text-[13px] font-medium leading-5 text-slate-900">
+                      <TableCell className="whitespace-normal break-words px-3 py-2 align-top text-[13px] font-medium leading-5 spike-heading">
                         {row.guest_name}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] tabular-nums text-slate-700">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] tabular-nums spike-text-secondary">
                         {formatShortDate(row.check_in)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] tabular-nums text-slate-700">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] tabular-nums spike-text-secondary">
                         {formatShortDate(row.check_out)}
                       </TableCell>
-                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-700">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums spike-text-secondary">
                         {nightsBetween(row.check_in, row.check_out)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] text-slate-700">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] spike-text-secondary">
                         {formatChannelLabel(row.channel_name, row.source)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] text-slate-700">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[13px] spike-text-secondary">
                         {STATUS_LABEL[row.status]}
                       </TableCell>
-                      <TableCell className="max-w-[130px] truncate px-3 py-2 font-mono text-[11px] tracking-tight text-slate-600">
+                      <TableCell className="max-w-[130px] truncate px-3 py-2 font-mono text-[11px] tracking-tight spike-text-muted">
                         {row.confirmation_code ?? "—"}
                       </TableCell>
-                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums spike-heading">
                         {formatMoneyFromString(row.gross_revenue)}
                       </TableCell>
-                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums spike-heading">
                         {formatMoneyFromString(row.net_revenue)}
                       </TableCell>
-                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums spike-heading">
                         {formatMoneyFromString(row.total_payout ?? row.total)}
                       </TableCell>
-                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums spike-heading">
                         {formatMoneyFromString(row.commission)}
                       </TableCell>
-                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums spike-heading">
                         {formatMoneyFromString(row.total_management_fee)}
                       </TableCell>
-                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums text-slate-800">
+                      <TableCell className="px-3 py-2 text-right text-[13px] tabular-nums spike-heading">
                         {formatMoneyFromString(row.cleaning_fee)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-slate-600">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums spike-text-muted">
                         {csvImportedLabel(row.csv_imported_at)}
                       </TableCell>
                     </TableRow>
@@ -296,7 +298,7 @@ export function DashboardPortfolioAnalyticsCard({
           )}
         </div>
 
-        <p className="text-xs leading-relaxed text-slate-500">
+        <p className="text-xs leading-relaxed spike-text-muted">
           Revenue uses CSV import fields where available. Only stays whose check-in falls in the selected calendar
           month are included. Cancelled bookings are excluded.
         </p>

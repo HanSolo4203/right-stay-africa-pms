@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { cn } from "@/lib/utils"
 
 const tabs = [
   { label: "Clients", href: "/clients" },
@@ -15,7 +14,7 @@ export function ClientsNav() {
   const pathname = usePathname()
 
   return (
-    <nav className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-slate-200/80 pr-4">
+    <nav className="flex w-full shrink-0 flex-row gap-1 overflow-x-auto border-b border-[var(--spike-glass-border)] pb-3 lg:w-52 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:border-b-0 lg:border-r lg:pr-4 lg:pb-0">
       {tabs.map((tab) => {
         const isActive =
           tab.href === "/clients"
@@ -25,12 +24,8 @@ export function ClientsNav() {
           <Link
             key={tab.href}
             href={tab.href}
-            className={cn(
-              "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              isActive
-                ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70"
-                : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
-            )}
+            data-active={isActive}
+            className="spike-sidebar-link shrink-0 whitespace-nowrap lg:whitespace-normal"
           >
             {tab.label}
           </Link>

@@ -46,18 +46,25 @@ export function PropertiesGrid({ properties, canImportBookings = false }: Proper
   return (
     <section className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-2xl font-semibold text-slate-900">Properties</h2>
+        <h2 className="text-xl font-semibold spike-heading">Properties</h2>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <ImportAllFromUplistingButton />
           {canImportBookings ? (
-            <Button asChild variant="outline" className="border-green-200 text-green-800 hover:bg-green-50">
+            <Button
+              asChild
+              variant="outline"
+              className="border-[var(--spike-glass-border)] bg-transparent text-[var(--spike-primary)] hover:bg-[var(--spike-primary-subtle)]"
+            >
               <Link href="/bookings/import">
                 <FileSpreadsheet className="size-4" />
                 Import bookings (CSV)
               </Link>
             </Button>
           ) : null}
-          <Button asChild className="bg-green-700 text-white hover:bg-green-800">
+          <Button
+            asChild
+            className="border-0 bg-gradient-to-r from-[var(--spike-primary)] to-[var(--spike-accent-purple)] text-[#0a0a10] hover:opacity-90"
+          >
             <Link href="/dashboard/properties/new">
               <Plus className="size-4" />
               Add Property
@@ -67,7 +74,7 @@ export function PropertiesGrid({ properties, canImportBookings = false }: Proper
       </div>
 
       <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 spike-text-muted" />
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}

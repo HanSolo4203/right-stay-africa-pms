@@ -252,14 +252,20 @@ model Statement {
   bookings    Booking[]
 }
 
+enum StatementBookingAllocationMode {
+  FULL_PAYMENT
+  MANUAL
+}
+
 model StatementBookingOverride {
-  id                     String   @id @default(cuid())
+  id                     String                         @id @default(cuid())
   booking_id             String
-  booking                Booking  @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  booking                Booking                        @relation(fields: [booking_id], references: [id], onDelete: Cascade)
   property_id            String
-  property               Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  property               Property                       @relation(fields: [property_id], references: [id], onDelete: Cascade)
   month                  Int
   year                   Int
+  allocation_mode        StatementBookingAllocationMode @default(MANUAL)
   note                   String
   accommodation_total    Decimal? @db.Decimal(10, 2)
   discount               Decimal? @db.Decimal(10, 2)

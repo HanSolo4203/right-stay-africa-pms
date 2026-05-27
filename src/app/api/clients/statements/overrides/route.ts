@@ -2,12 +2,17 @@ import { NextResponse } from "next/server"
 import { assertClientsApiAccess } from "@/lib/clients/api-auth"
 import { normalizeBookingOverrideAmounts } from "@/lib/clients/normalize-booking-override-amounts"
 import { parseManagementFeeType } from "@/lib/clients/management-fee-calculator"
-import { serializeStatementBookingOverride } from "@/lib/clients/statement-booking-overrides"
+import {
+  FULL_PAYMENT_OVERRIDE_NOTE,
+  fullPaymentOverrideAmounts,
+  serializeStatementBookingOverride,
+} from "@/lib/clients/statement-booking-overrides"
 import {
   rebuildPropertyStatementForPeriod,
   resolveClientPropertyIds,
 } from "@/lib/clients/statement-service"
 import { upsertStatementBookingOverrideSchema } from "@/lib/validations/statement-booking-override"
+import { statementBookingSelect } from "@/lib/statement-calculator"
 import { prisma } from "@/lib/prisma"
 
 export async function POST(request: Request) {
@@ -59,7 +64,7 @@ export async function POST(request: Request) {
 
     const booking = await prisma.booking.findFirst({
       where: { id: data.bookingId, property_id: data.propertyId },
-      select: { id: true },
+      select: statementBookingSelect,
     })
     if (!booking) {
       return NextResponse.json({ error: "Booking not found." }, { status: 404 })
@@ -71,13 +76,57 @@ export async function POST(request: Request) {
         : null
     const managementFeeType = parseManagementFeeType(property.management_fee_type)
 
-    if (data.useAutomaticProRation) {
+    if (data.allocationMode === "prorated") {
       await prisma.statementBookingOverride.deleteMany({
         where: {
           booking_id: data.bookingId,
           property_id: data.propertyId,
           month: data.month,
           year: data.year,
+        },
+      })
+    } else if (data.allocationMode === "full_payment") {
+      const amounts = fullPaymentOverrideAmounts(booking)
+
+      await prisma.statementBookingOverride.upsert({
+        where: {
+          booking_id_month_year: {
+            booking_id: data.bookingId,
+            month: data.month,
+            year: data.year,
+          },
+        },
+        create: {
+          booking_id: data.bookingId,
+          property_id: data.propertyId,
+          month: data.month,
+          year: data.year,
+          allocation_mode: "FULL_PAYMENT",
+          note: FULL_PAYMENT_OVERRIDE_NOTE,
+          accommodation_total: amounts.accommodation_total,
+          channel_commission: amounts.channel_commission,
+          total_management_fee: amounts.total_management_fee,
+          cleaning_fee: amounts.cleaning_fee,
+          payment_processing_fee: amounts.payment_processing_fee,
+          total_payout: amounts.total_payout,
+          discount: amounts.discount,
+          extra_charges: amounts.extra_charges,
+          upsells: amounts.upsells,
+          booking_taxes: amounts.booking_taxes,
+        },
+        update: {
+          allocation_mode: "FULL_PAYMENT",
+          note: FULL_PAYMENT_OVERRIDE_NOTE,
+          accommodation_total: amounts.accommodation_total,
+          channel_commission: amounts.channel_commission,
+          total_management_fee: amounts.total_management_fee,
+          cleaning_fee: amounts.cleaning_fee,
+          payment_processing_fee: amounts.payment_processing_fee,
+          total_payout: amounts.total_payout,
+          discount: amounts.discount,
+          extra_charges: amounts.extra_charges,
+          upsells: amounts.upsells,
+          booking_taxes: amounts.booking_taxes,
         },
       })
     } else {
@@ -109,6 +158,7 @@ export async function POST(request: Request) {
           property_id: data.propertyId,
           month: data.month,
           year: data.year,
+          allocation_mode: "MANUAL",
           note: data.note!.trim(),
           accommodation_total: amounts.accommodation_total,
           channel_commission: amounts.channel_commission,
@@ -122,6 +172,7 @@ export async function POST(request: Request) {
           booking_taxes: amounts.booking_taxes,
         },
         update: {
+          allocation_mode: "MANUAL",
           note: data.note!.trim(),
           accommodation_total: amounts.accommodation_total,
           channel_commission: amounts.channel_commission,

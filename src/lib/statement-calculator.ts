@@ -40,6 +40,7 @@ export const statementBookingSelect = {
   source: true,
   status: true,
   owner_statement_id: true,
+  uplisting_id: true,
   csv_imported_at: true,
   accommodation_total: true,
   discount: true,
@@ -110,7 +111,7 @@ type BookingFinancials = {
   gross_revenue: number
 }
 
-function bookingFinancials(b: StatementBookingInput): BookingFinancials {
+export function bookingFinancialsFromInput(b: StatementBookingInput): BookingFinancials {
   return {
     accommodation_total: num(b.accommodation_total),
     discount: num(b.discount),
@@ -163,7 +164,7 @@ export function prorateBookingByMonth(booking: StatementBookingInput): MonthlyAl
 
   if (totalNights <= 0) return []
 
-  const financials = bookingFinancials(booking)
+  const financials = bookingFinancialsFromInput(booking)
 
   if (booking.is_manual_override) {
     const { year, month } = calendarYearMonthInTimeZone(checkOut, STATEMENT_CALENDAR_TIMEZONE)
@@ -308,10 +309,11 @@ export function bookingToSnapshotRow(
       total_management_fee: allocation.total_management_fee,
       payment_processing_fee: allocation.payment_processing_fee,
       total_payout: allocation.total_payout,
-      is_prorated: allocation.isProrated,
+      is_prorated: allocation.isProrated && !allocation.isFullPayment,
       nights_in_period: allocation.nights,
       total_stay_nights: allocation.totalNights,
       is_manual_override: allocation.isManualOverride,
+      is_full_payment: allocation.isFullPayment,
       manual_note: allocation.manualNote,
     }
   }
@@ -453,10 +455,11 @@ export function buildPropertyStatement(input: {
         managementFeeAmount: mgmtAmount,
         welcomePackFee: welcomePackUnit,
       }),
-      isProrated: a.isProrated && !a.isManualOverride,
+      isProrated: a.isProrated && !a.isManualOverride && !a.isFullPayment,
       nightsInMonth: a.nights,
       totalStayNights: a.totalNights,
       isManualOverride: a.isManualOverride,
+      isFullPayment: a.isFullPayment,
       manualNote: a.manualNote,
     }
   })

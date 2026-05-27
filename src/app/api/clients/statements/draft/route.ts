@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { assertClientsApiAccess } from "@/lib/clients/api-auth"
-import { savePropertyStatementDraft } from "@/lib/clients/statement-service"
+import {
+  rebuildPropertyStatementForPeriod,
+  savePropertyStatementDraft,
+} from "@/lib/clients/statement-service"
 import { statementAutomaticExpenseLineSchema } from "@/lib/validations/statement-expense"
 
 const bodySchema = z.object({
@@ -37,7 +40,13 @@ export async function POST(request: Request) {
 
   try {
     const result = await savePropertyStatementDraft(parsed.data)
-    return NextResponse.json(result)
+    const statement = await rebuildPropertyStatementForPeriod(
+      parsed.data.clientId,
+      parsed.data.propertyId,
+      parsed.data.month,
+      parsed.data.year
+    )
+    return NextResponse.json({ ...result, statement })
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to save draft."
     return NextResponse.json({ error: msg }, { status: 400 })

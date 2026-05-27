@@ -121,6 +121,7 @@ describe("applyOverridesToAllocations", () => {
           property_id: "p1",
           month: 1,
           year: 2026,
+          allocation_mode: "MANUAL",
           note: "Manual override",
           accommodation_total: 24154.52,
           discount: 1130.63,
@@ -142,5 +143,49 @@ describe("applyOverridesToAllocations", () => {
     assert.equal(merged.gross_revenue, 24154.52)
     assert.equal(allocationGrossRevenue(merged), 24154.52)
     assert.equal(merged.cleaning_fee, 450)
+  })
+
+  it("uses full CSV amounts when allocation mode is full payment", () => {
+    const allocations = prorateBookingByMonth(
+      booking({
+        check_in: new Date("2026-03-29T00:00:00.000Z"),
+        check_out: new Date("2026-04-03T00:00:00.000Z"),
+      })
+    )
+    const apr = allocations.find((a) => a.year === 2026 && a.month === 4)
+    assert.ok(apr)
+    assert.ok(apr!.total_payout < 7650)
+
+    const [merged] = applyOverridesToAllocations(
+      [apr!],
+      [
+        {
+          id: "ov2",
+          booking_id: "b1",
+          property_id: "p1",
+          month: 4,
+          year: 2026,
+          allocation_mode: "FULL_PAYMENT",
+          note: "Full payment",
+          accommodation_total: 9300,
+          discount: 0,
+          extra_charges: null,
+          cleaning_fee: 300,
+          upsells: null,
+          booking_taxes: null,
+          channel_commission: 900,
+          total_management_fee: 450,
+          payment_processing_fee: 0,
+          total_payout: 7650,
+        },
+      ],
+      4,
+      2026
+    )
+
+    assert.equal(merged.isFullPayment, true)
+    assert.equal(merged.isManualOverride, false)
+    assert.equal(merged.total_payout, 7650)
+    assert.equal(merged.nights, apr!.nights)
   })
 })

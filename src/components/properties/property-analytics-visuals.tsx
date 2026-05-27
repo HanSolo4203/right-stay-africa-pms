@@ -22,12 +22,18 @@ import {
   YAxis,
 } from "recharts"
 
-const GREEN = {
-  primary: "#166534",
-  mid: "#15803d",
-  light: "#22c55e",
-  pale: "#bbf7d0",
-  muted: "#86efac",
+const CHART = {
+  primary: "#5ac8fa",
+  mid: "#7c8aff",
+  light: "#bf5af2",
+  pale: "rgba(90, 200, 250, 0.35)",
+  muted: "rgba(255, 255, 255, 0.28)",
+}
+
+const AXIS = {
+  tick: "rgba(255, 255, 255, 0.45)",
+  grid: "rgba(255, 255, 255, 0.08)",
+  line: "rgba(255, 255, 255, 0.12)",
 }
 
 /** Brand-aligned colours for OTAs / direct (donut + legend). */
@@ -35,7 +41,7 @@ function channelDonutColor(label: string, index: number): string {
   const n = label.toLowerCase()
   if (n.includes("airbnb")) return "#FF5A5F"
   if (n.includes("booking")) return "#003580"
-  if (n.includes("uplisting") || n.includes("direct")) return "#166534"
+  if (n.includes("uplisting") || n.includes("direct")) return "#5ac8fa"
   if (n.includes("vrbo") || n.includes("homeaway")) return "#2B6CB0"
   if (n.includes("expedia")) return "#FFC72C"
   if (n.includes("tripadvisor")) return "#00AF87"
@@ -66,11 +72,11 @@ type ChartTooltipProps = {
 function MoneyTooltip({ active, payload, label }: ChartTooltipProps) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
-      {label ? <p className="mb-1 font-semibold text-slate-900">{label}</p> : null}
+    <div className="spike-chart-tooltip">
+      {label ? <p className="mb-1 font-semibold spike-heading">{label}</p> : null}
       <ul className="space-y-0.5">
         {payload.map((p) => (
-          <li key={String(p.dataKey)} className="flex items-center gap-2 text-slate-700">
+          <li key={String(p.dataKey)} className="flex items-center gap-2 spike-text-secondary">
             <span className="size-2 shrink-0 rounded-sm" style={{ background: p.color }} />
             <span className="capitalize">{p.name ?? p.dataKey}:</span>
             <span className="font-medium tabular-nums">{formatZar(Number(p.value ?? 0))}</span>
@@ -87,9 +93,9 @@ function PieTooltip({ active, payload }: ChartTooltipProps) {
   const v = Number(p?.value ?? 0)
   const name = String(p?.name ?? "")
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
-      <p className="font-semibold text-slate-900">{name}</p>
-      <p className="tabular-nums text-slate-700">{formatZar(v)}</p>
+    <div className="spike-chart-tooltip">
+      <p className="font-semibold spike-heading">{name}</p>
+      <p className="tabular-nums spike-text-secondary">{formatZar(v)}</p>
     </div>
   )
 }
@@ -112,12 +118,12 @@ function ShareMeter({
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2 text-xs">
-        <span className="font-medium text-slate-600">{label}</span>
-        <span className="shrink-0 tabular-nums text-slate-500">
+        <span className="font-medium spike-text-secondary">{label}</span>
+        <span className="shrink-0 tabular-nums spike-text-muted">
           {pct.toFixed(0)}% of {basisLabel}
         </span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/60">
+      <div className="h-2 overflow-hidden rounded-full bg-[rgba(255,255,255,0.08)] ring-1 ring-[var(--spike-glass-border)]">
         <div
           className="h-full rounded-full transition-[width] duration-500 ease-out"
           style={{ width: `${pct}%`, backgroundColor: color }}
@@ -148,25 +154,25 @@ export function PropertyAnalyticsVisuals({
   return (
     <div className="space-y-6">
       {hasMoney ? (
-        <div className="grid gap-4 rounded-xl border border-slate-200/80 bg-white/90 p-4 shadow-sm sm:grid-cols-3">
-          <ShareMeter label="Total payout" value={snapshot.totalPayout} total={gross} color={GREEN.primary} />
-          <ShareMeter label="Commission" value={snapshot.commission} total={gross} color={GREEN.mid} />
+        <div className="spike-chart-panel grid gap-4 sm:grid-cols-3">
+          <ShareMeter label="Total payout" value={snapshot.totalPayout} total={gross} color={CHART.primary} />
+          <ShareMeter label="Commission" value={snapshot.commission} total={gross} color={CHART.mid} />
           <ShareMeter
             label="Management fees"
             value={snapshot.managementFees}
             total={snapshot.totalPayout}
-            color={GREEN.light}
+            color={CHART.light}
             basisLabel="total payout"
           />
         </div>
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-          <h4 className="text-sm font-semibold text-slate-900">
+        <div className="spike-chart-panel">
+          <h4 className="text-sm font-semibold spike-heading">
             {useMonthlyTrend ? "Revenue by check-in month" : "Revenue by stay"}
           </h4>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className="mt-0.5 text-xs spike-text-muted">
             {useMonthlyTrend
               ? "Gross revenue and payout aggregated per calendar month"
               : "Gross revenue per booking in this filter (top stays)"}
@@ -175,18 +181,18 @@ export function PropertyAnalyticsVisuals({
             {useMonthlyTrend && monthlySeries.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlySeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={AXIS.grid} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: AXIS.tick }} axisLine={{ stroke: AXIS.line }} />
                   <YAxis
-                    tick={{ fontSize: 10, fill: "#64748b" }}
+                    tick={{ fontSize: 10, fill: AXIS.tick }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={compactAxisZar}
                   />
                   <Tooltip content={<MoneyTooltip />} />
                   <Legend wrapperStyle={{ fontSize: "11px", paddingTop: 8 }} />
-                  <Bar dataKey="gross" name="Gross revenue" fill={GREEN.primary} radius={[4, 4, 0, 0]} maxBarSize={48} />
-                  <Bar dataKey="payout" name="Total payout" fill={GREEN.muted} radius={[4, 4, 0, 0]} maxBarSize={48} />
+                  <Bar dataKey="gross" name="Gross revenue" fill={CHART.primary} radius={[4, 4, 0, 0]} maxBarSize={48} />
+                  <Bar dataKey="payout" name="Total payout" fill={CHART.muted} radius={[4, 4, 0, 0]} maxBarSize={48} />
                 </BarChart>
               </ResponsiveContainer>
             ) : !useMonthlyTrend && perBookingBars.length > 0 ? (
@@ -196,38 +202,38 @@ export function PropertyAnalyticsVisuals({
                   data={perBookingBars}
                   margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={AXIS.grid} />
                   <XAxis
                     type="number"
-                    tick={{ fontSize: 10, fill: "#64748b" }}
-                    axisLine={{ stroke: "#e2e8f0" }}
+                    tick={{ fontSize: 10, fill: AXIS.tick }}
+                    axisLine={{ stroke: AXIS.line }}
                     tickFormatter={compactAxisZar}
                   />
                   <YAxis
                     type="category"
                     dataKey="label"
                     width={92}
-                    tick={{ fontSize: 10, fill: "#475569" }}
+                    tick={{ fontSize: 10, fill: AXIS.tick }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <Tooltip content={<MoneyTooltip />} />
                   <Legend wrapperStyle={{ fontSize: "11px", paddingTop: 8 }} />
-                  <Bar dataKey="gross" name="Gross revenue" fill={GREEN.primary} radius={[0, 4, 4, 0]} maxBarSize={22} />
-                  <Bar dataKey="payout" name="Total payout" fill={GREEN.muted} radius={[0, 4, 4, 0]} maxBarSize={22} />
+                  <Bar dataKey="gross" name="Gross revenue" fill={CHART.primary} radius={[0, 4, 4, 0]} maxBarSize={22} />
+                  <Bar dataKey="payout" name="Total payout" fill={CHART.muted} radius={[0, 4, 4, 0]} maxBarSize={22} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              <div className="flex h-full items-center justify-center text-sm spike-text-muted">
                 Nothing to chart for this period.
               </div>
             )}
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-          <h4 className="text-sm font-semibold text-slate-900">Gross revenue by channel</h4>
-          <p className="mt-0.5 text-xs text-slate-500">From CSV channel / booking source fields</p>
+        <div className="spike-chart-panel">
+          <h4 className="text-sm font-semibold spike-heading">Gross revenue by channel</h4>
+          <p className="mt-0.5 text-xs spike-text-muted">From CSV channel / booking source fields</p>
           <div className="mt-3 h-[260px] w-full min-w-0">
             {channelSlices.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -246,7 +252,7 @@ export function PropertyAnalyticsVisuals({
                       <Cell
                         key={`${entry.name}-${i}`}
                         fill={channelDonutColor(entry.name, i)}
-                        stroke="#fff"
+                        stroke="rgba(8, 8, 14, 0.9)"
                         strokeWidth={1}
                       />
                     ))}
@@ -256,7 +262,7 @@ export function PropertyAnalyticsVisuals({
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              <div className="flex h-full items-center justify-center text-sm spike-text-muted">
                 No channel gross in this period.
               </div>
             )}
@@ -265,19 +271,19 @@ export function PropertyAnalyticsVisuals({
       </div>
 
       {monthlySeries.length > 1 ? (
-        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-          <h4 className="text-sm font-semibold text-slate-900">Activity trend</h4>
-          <p className="mt-0.5 text-xs text-slate-500">
+        <div className="spike-chart-panel">
+          <h4 className="text-sm font-semibold spike-heading">Activity trend</h4>
+          <p className="mt-0.5 text-xs spike-text-muted">
             Guest nights (bars) and booking count (line) by check-in month
           </p>
           <div className="mt-3 h-[200px] w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={monthlySeries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={AXIS.grid} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: AXIS.tick }} axisLine={{ stroke: AXIS.line }} />
                 <YAxis
                   yAxisId="nights"
-                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tick={{ fontSize: 10, fill: AXIS.tick }}
                   axisLine={false}
                   tickLine={false}
                   allowDecimals={false}
@@ -285,7 +291,7 @@ export function PropertyAnalyticsVisuals({
                 <YAxis
                   yAxisId="bookings"
                   orientation="right"
-                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tick={{ fontSize: 10, fill: AXIS.tick }}
                   axisLine={false}
                   tickLine={false}
                   allowDecimals={false}
@@ -296,10 +302,10 @@ export function PropertyAnalyticsVisuals({
                     if (!active || !payload?.length) return null
                     const row = payload[0]?.payload as AnalyticsMonthPoint | undefined
                     return (
-                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
-                        <p className="font-semibold text-slate-900">{label}</p>
-                        <p className="text-slate-700">Bookings: {row?.bookingCount ?? 0}</p>
-                        <p className="text-slate-700">Nights: {row?.nights ?? 0}</p>
+                      <div className="spike-chart-tooltip">
+                        <p className="font-semibold spike-heading">{label}</p>
+                        <p className="spike-text-secondary">Bookings: {row?.bookingCount ?? 0}</p>
+                        <p className="spike-text-secondary">Nights: {row?.nights ?? 0}</p>
                       </div>
                     )
                   }}
@@ -309,7 +315,7 @@ export function PropertyAnalyticsVisuals({
                   yAxisId="nights"
                   dataKey="nights"
                   name="Guest nights"
-                  fill={GREEN.pale}
+                  fill={CHART.pale}
                   radius={[4, 4, 0, 0]}
                   maxBarSize={40}
                 />
@@ -318,9 +324,9 @@ export function PropertyAnalyticsVisuals({
                   type="monotone"
                   dataKey="bookingCount"
                   name="Bookings"
-                  stroke={GREEN.primary}
+                  stroke={CHART.primary}
                   strokeWidth={2}
-                  dot={{ fill: GREEN.primary, r: 3 }}
+                  dot={{ fill: CHART.primary, r: 3 }}
                 />
               </ComposedChart>
             </ResponsiveContainer>

@@ -8,6 +8,7 @@ import type {
   OwnerStatementReceiptLineV1,
   OwnerStatementSnapshotV1,
 } from "@/lib/owner-statement/types"
+import { getDaysInMonth } from "date-fns"
 import {
   allocationsForStatementMonth,
   bookingToSnapshotRow,
@@ -138,12 +139,19 @@ export function applyPreviewTotalsToStatement(
   statement: PropertyStatement,
   preview: OwnerStatementSnapshotV1
 ): PropertyStatement {
+  const totalNights = preview.bookings.reduce(
+    (s, b) => s + (Number.isFinite(b.num_nights) ? b.num_nights : 0),
+    0
+  )
+  const daysInMonth = getDaysInMonth(new Date(preview.year, preview.month - 1, 1))
+  const occupancyRate = daysInMonth > 0 ? round2(totalNights / daysInMonth) : 0
+
   return {
     ...statement,
     totals: totalsFromSnapshot(preview, {
-      totalNights: statement.totals.totalNights,
-      bookingCount: statement.lines.length,
-      occupancyRate: statement.totals.occupancyRate,
+      totalNights,
+      bookingCount: preview.bookings.length,
+      occupancyRate,
     }),
   }
 }

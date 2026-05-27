@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { describeDatabaseError } from "@/lib/required-env"
+import { isStaleWebpackChunkError } from "@/lib/webpack-chunk-error"
 
 const GENERIC_PRODUCTION_MESSAGE =
   "An error occurred in the Server Components render. The specific message is omitted in production builds"
@@ -20,6 +21,7 @@ export default function DashboardError({
 
   const message = error.message ?? "Something went wrong."
   const isGenericProduction = message.includes(GENERIC_PRODUCTION_MESSAGE)
+  const isStaleChunk = isStaleWebpackChunkError(message)
   const dbHint = useMemo(() => describeDatabaseError(message), [message])
   const isDb =
     Boolean(dbHint) ||
@@ -31,7 +33,18 @@ export default function DashboardError({
   return (
     <div className="mx-auto max-w-lg space-y-4 rounded-xl border border-rose-200 bg-rose-50/80 p-6 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-900">Dashboard couldn&apos;t load</h2>
-      {isGenericProduction ? (
+      {isStaleChunk ? (
+        <div className="space-y-2 text-sm text-slate-700">
+          <p>The browser loaded an outdated JavaScript bundle (common after redeploys or hot reload).</p>
+          <ul className="list-inside list-disc space-y-1 text-slate-600">
+            <li>Hard refresh: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).</li>
+            <li>
+              If it persists locally, stop the dev server and run{" "}
+              <code className="rounded bg-white px-1 py-0.5 text-xs">npm run dev:clean</code>.
+            </li>
+          </ul>
+        </div>
+      ) : isGenericProduction ? (
         <div className="space-y-2 text-sm text-slate-700">
           <p>
             Production hides the real error. On Vercel, open <strong>Deployments → your deployment →

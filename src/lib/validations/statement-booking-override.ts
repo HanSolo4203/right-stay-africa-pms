@@ -2,6 +2,12 @@ import { z } from "zod"
 
 const optionalAmount = z.number().finite().optional().nullable()
 
+export const statementBookingAllocationModeSchema = z.enum([
+  "prorated",
+  "full_payment",
+  "manual",
+])
+
 export const upsertStatementBookingOverrideSchema = z
   .object({
     clientId: z.string().min(1),
@@ -9,7 +15,9 @@ export const upsertStatementBookingOverrideSchema = z
     bookingId: z.string().uuid(),
     month: z.number().int().min(1).max(12),
     year: z.number().int().min(2000).max(2100),
-    useAutomaticProRation: z.boolean(),
+    /** Preferred: prorated | full_payment | manual. Legacy: useAutomaticProRation. */
+    allocationMode: statementBookingAllocationModeSchema.optional(),
+    useAutomaticProRation: z.boolean().optional(),
     note: z.string().trim().optional(),
     accommodation_total: optionalAmount,
     channel_commission: optionalAmount,
@@ -22,8 +30,14 @@ export const upsertStatementBookingOverrideSchema = z
     upsells: optionalAmount,
     booking_taxes: optionalAmount,
   })
+  .transform((data) => {
+    const mode =
+      data.allocationMode ??
+      (data.useAutomaticProRation === false ? "manual" : "prorated")
+    return { ...data, allocationMode: mode }
+  })
   .superRefine((data, ctx) => {
-    if (data.useAutomaticProRation) return
+    if (data.allocationMode === "prorated" || data.allocationMode === "full_payment") return
     if (!data.note || data.note.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

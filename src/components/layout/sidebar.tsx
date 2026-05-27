@@ -3,8 +3,15 @@
 import Link from "next/link"
 import { useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { Building2, FileSpreadsheet, LayoutDashboard, LogOut, Settings, Users } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import {
+  Building2,
+  FileSpreadsheet,
+  LayoutDashboard,
+  LogOut,
+  Settings,
+  Users,
+  X,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase/client"
@@ -12,6 +19,9 @@ import { supabase } from "@/lib/supabase/client"
 type SidebarProps = {
   email: string | null
   role: string | null
+  mobileOpen?: boolean
+  onNavigate?: () => void
+  onClose?: () => void
 }
 
 const links = [
@@ -30,11 +40,10 @@ function isNavLinkActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function Sidebar({ email, role }: SidebarProps) {
+export function Sidebar({ email, role, mobileOpen = false, onNavigate, onClose }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const showImports = canManageImports(role)
-
   const showSettings = role === "SUPER_ADMIN" || role === "PROPERTY_MANAGER"
 
   useEffect(() => {
@@ -59,82 +68,111 @@ export function Sidebar({ email, role }: SidebarProps) {
   const settingsActive = pathname === "/settings" || pathname.startsWith("/settings/")
 
   return (
-    <aside className="flex h-screen w-[260px] shrink-0 flex-col border-r border-slate-200/80 bg-gradient-to-b from-slate-50 to-white shadow-[inset_-1px_0_0_0_rgb(226_232_240_/_0.6)]">
-      <div className="border-b border-slate-200/80 px-5 py-5">
-        <p className="text-[15px] font-semibold tracking-tight text-green-800">Right Stay Africa</p>
-        <p className="mt-0.5 text-xs text-slate-500">Portfolio management</p>
+    <aside
+      className="spike-sidebar fixed z-30 flex shrink-0 flex-col"
+      data-open={mobileOpen}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--spike-glass-border)] px-5 py-5">
+        <Link href="/dashboard" className="min-w-0" onClick={onNavigate}>
+          <p className="spike-sidebar-brand truncate text-lg font-bold tracking-tight">
+            Right Stay Africa
+          </p>
+          <p className="mt-0.5 truncate text-xs spike-text-muted">Portfolio management</p>
+        </Link>
+        <button
+          type="button"
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg spike-text-secondary transition hover:bg-[var(--spike-primary-subtle)] hover:text-[var(--spike-primary)] lg:hidden"
+          aria-label="Close menu"
+          onClick={onClose}
+        >
+          <X className="size-5" />
+        </button>
       </div>
 
-      <nav className="flex flex-1 flex-col space-y-0.5 overflow-y-auto px-3 py-4">
-        {links.map((link) => {
-          const isActive = isNavLinkActive(pathname, link.href)
-          const Icon = link.icon
+      <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-4">
+        <p className="spike-nav-cap">Home</p>
+        <ul className="space-y-1">
+          {links.map((link) => {
+            const isActive = isNavLinkActive(pathname, link.href)
+            const Icon = link.icon
 
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg border-l-[3px] py-2.5 pr-3 pl-[9px] text-sm font-medium transition-all",
-                isActive
-                  ? "border-l-emerald-600 bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70"
-                  : "border-l-transparent text-slate-600 hover:bg-white/70 hover:text-slate-900"
-              )}
-            >
-              <Icon className={cn("size-4 shrink-0", isActive ? "text-emerald-700" : "text-slate-500")} />
-              {link.label}
-            </Link>
-          )
-        })}
+            return (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  data-active={isActive}
+                  className="spike-sidebar-link"
+                  onClick={onNavigate}
+                >
+                  <Icon
+                    className={cn(
+                      "size-[18px] shrink-0",
+                      isActive ? "text-[var(--spike-primary)]" : "spike-text-muted"
+                    )}
+                  />
+                  {link.label}
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
 
         {showImports ? (
-          <div className="mt-5 border-t border-slate-200/80 pt-4">
-            <p className="px-3 pb-2 text-[11px] font-semibold tracking-[0.12em] text-slate-400 uppercase">Imports</p>
-            <Link
-              href="/bookings/import"
-              className={cn(
-                "flex items-center gap-3 rounded-lg border-l-[3px] py-2.5 pr-3 pl-[9px] text-sm font-medium transition-all",
-                importActive
-                  ? "border-l-emerald-600 bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70"
-                  : "border-l-transparent text-slate-600 hover:bg-white/70 hover:text-slate-900"
-              )}
-            >
-              <FileSpreadsheet
-                className={cn("size-4 shrink-0", importActive ? "text-emerald-700" : "text-slate-500")}
-              />
-              Booking CSV import
-            </Link>
-          </div>
+          <>
+            <p className="spike-nav-cap mt-6">Operations</p>
+            <ul className="space-y-1">
+              <li>
+                <Link
+                  href="/bookings/import"
+                  data-active={importActive}
+                  className="spike-sidebar-link"
+                  onClick={onNavigate}
+                >
+                  <FileSpreadsheet
+                    className={cn(
+                      "size-[18px] shrink-0",
+                      importActive ? "text-[var(--spike-primary)]" : "spike-text-muted"
+                    )}
+                  />
+                  Booking CSV import
+                </Link>
+              </li>
+            </ul>
+          </>
         ) : null}
 
         {showSettings ? (
-          <div className="mt-auto border-t border-slate-200/80 pt-4">
-            <Link
-              href="/settings"
-              className={cn(
-                "flex items-center gap-3 rounded-lg border-l-[3px] py-2.5 pr-3 pl-[9px] text-sm font-medium transition-all",
-                settingsActive
-                  ? "border-l-emerald-600 bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70"
-                  : "border-l-transparent text-slate-600 hover:bg-white/70 hover:text-slate-900"
-              )}
-            >
-              <Settings
-                className={cn("size-4 shrink-0", settingsActive ? "text-emerald-700" : "text-slate-500")}
-              />
-              Settings
-            </Link>
-          </div>
+          <ul className="mt-auto space-y-1 border-t border-[var(--spike-glass-border)] pt-4">
+            <li>
+              <Link
+                href="/settings"
+                data-active={settingsActive}
+                className="spike-sidebar-link"
+                onClick={onNavigate}
+              >
+                <Settings
+                  className={cn(
+                    "size-[18px] shrink-0",
+                    settingsActive ? "text-[var(--spike-primary)]" : "spike-text-muted"
+                  )}
+                />
+                Settings
+              </Link>
+            </li>
+          </ul>
         ) : null}
       </nav>
 
-      <div className="border-t border-slate-200/80 bg-slate-50/50 p-4">
-        <p className="truncate text-sm font-medium text-slate-900">{email ?? "Unknown user"}</p>
-        <Badge variant="outline" className="mt-2 border-emerald-200/80 bg-emerald-50/80 text-emerald-900">
-          {role ?? "NO_ROLE"}
-        </Badge>
-        <Button variant="outline" className="mt-3 w-full justify-start border-slate-200 bg-white hover:bg-slate-50" onClick={onSignOut}>
+      <div className="border-t border-[var(--spike-glass-border)] p-4 lg:hidden">
+        <p className="truncate text-xs spike-text-muted">{email}</p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-2 w-full border-[var(--spike-glass-border)] bg-transparent spike-text-secondary hover:bg-[var(--spike-primary-subtle)] hover:text-[var(--spike-primary)]"
+          onClick={() => void onSignOut()}
+        >
           <LogOut className="size-4" />
-          Sign Out
+          Sign out
         </Button>
       </div>
     </aside>

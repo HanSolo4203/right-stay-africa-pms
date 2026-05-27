@@ -1,7 +1,7 @@
 "use client"
 
 import { parseISO } from "date-fns"
-import { calendarYearMonthInTimeZone, STATEMENT_CALENDAR_TIMEZONE } from "@/lib/owner-statement/statement-eligibility"
+import { STATEMENT_CALENDAR_TIMEZONE } from "@/lib/owner-statement/statement-eligibility"
 
 export function StatementProrationBadge({
   checkIn,
@@ -46,13 +46,19 @@ function formatMonthYear(d: Date): string {
   return d.toLocaleString("en-ZA", { month: "long", year: "numeric", timeZone: STATEMENT_CALENDAR_TIMEZONE })
 }
 
-export function bookingSpansMultipleMonths(checkIn: string, checkOut: string): boolean {
-  const checkInDate = parseISO(checkIn)
-  const checkOutDate = parseISO(checkOut)
-  if (Number.isNaN(checkInDate.getTime()) || Number.isNaN(checkOutDate.getTime())) return false
-  const start = calendarYearMonthInTimeZone(checkInDate, STATEMENT_CALENDAR_TIMEZONE)
-  const end = calendarYearMonthInTimeZone(checkOutDate, STATEMENT_CALENDAR_TIMEZONE)
-  return start.year !== end.year || start.month !== end.month
+export function StatementFullPaymentBadge() {
+  return (
+    <span
+      className="mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+      style={{ backgroundColor: "#dbeafe", color: "#1d4ed8", borderRadius: 4 }}
+      title="Full CSV payout for this booking is attributed to this statement month (not split by nights)."
+    >
+      Full payment this month
+      <span aria-hidden className="opacity-70">
+        ⓘ
+      </span>
+    </span>
+  )
 }
 
 export function StatementManualOverrideBadge({ note }: { note: string }) {

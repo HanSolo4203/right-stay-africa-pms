@@ -41,6 +41,7 @@ export type OwnerStatementSnapshotBookingV1 = {
   nights_in_period?: number
   total_stay_nights?: number
   is_manual_override?: boolean
+  is_full_payment?: boolean
   manual_note?: string
 }
 
