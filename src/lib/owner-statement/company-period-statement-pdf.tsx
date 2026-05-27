@@ -15,7 +15,7 @@ import {
   STATEMENT_PDF_SAFE_INSET,
 } from "./statement-pdf-layout"
 import { CompanyPeriodStatementAnalyticsPage } from "./company-period-statement-pdf-analytics"
-import { formatZAR } from "./owner-statement-pdf-format"
+import { formatZAR, formatZARTable } from "./owner-statement-pdf-format"
 import {
   STATEMENT_PDF_BRAND,
   StatementPdfBrandedHeader,
@@ -177,13 +177,13 @@ export function CompanyPeriodStatementPdfDocument({
         <StatementPdfKpiStrip>
           <StatementPdfKpiCard
             label="Owner payouts"
-            value={formatZAR(summary.finalised.ownerPayouts)}
+            value={formatZARTable(summary.finalised.ownerPayouts)}
             sub={`${summary.finalised.finalisedPropertyCount} finalised properties`}
             accent
           />
           <StatementPdfKpiCard
             label="Right Stay income"
-            value={formatZAR(summary.finalised.rightStayIncome.total)}
+            value={formatZARTable(summary.finalised.rightStayIncome.total)}
             sub="Finalised track"
           />
           <StatementPdfKpiCard
@@ -193,7 +193,7 @@ export function CompanyPeriodStatementPdfDocument({
           />
           <StatementPdfKpiCard
             label="Preview payouts"
-            value={formatZAR(summary.preview.ownerPayouts)}
+            value={formatZARTable(summary.preview.ownerPayouts)}
             sub={`${summary.preview.propertiesWithFigures} with figures`}
           />
         </StatementPdfKpiStrip>

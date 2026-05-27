@@ -211,9 +211,9 @@ const headerStyles = {
   } satisfies Style,
   kpiValue: {
     fontFamily: FONT_BOLD,
-    fontSize: 17,
+    fontSize: 15,
     color: STATEMENT_PDF_BRAND.ink,
-    lineHeight: 1.2,
+    lineHeight: 1.15,
   } satisfies Style,
   kpiValueAccent: {
     color: STATEMENT_PDF_BRAND.payoutGreen,
@@ -256,8 +256,11 @@ export function StatementPdfKpiCard({
         ...(accent ? [headerStyles.kpiCardAccent] : []),
       ]}
     >
-      <Text style={headerStyles.kpiLabel}>{label}</Text>
+      <Text style={headerStyles.kpiLabel} wrap={false}>
+        {label}
+      </Text>
       <Text
+        wrap={false}
         style={[
           headerStyles.kpiValue,
           ...(accent ? [headerStyles.kpiValueAccent] : []),
@@ -265,7 +268,9 @@ export function StatementPdfKpiCard({
       >
         {value}
       </Text>
-      <Text style={headerStyles.kpiSub}>{sub}</Text>
+      <Text style={headerStyles.kpiSub} wrap={false}>
+        {sub}
+      </Text>
     </View>
   )
 }

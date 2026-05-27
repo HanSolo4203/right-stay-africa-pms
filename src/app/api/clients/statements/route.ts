@@ -31,7 +31,7 @@ export async function GET(request: Request) {
           const client = await loadClientStatementsForPeriod(clientId, month, year)
           return client ? [client] : []
         })()
-      : await loadClientsWithStatements(month, year)
+      : await loadClientsWithStatements(month, year, { omitBookings: true })
     return NextResponse.json({
       month,
       year,

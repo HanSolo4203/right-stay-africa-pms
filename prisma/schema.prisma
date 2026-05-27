@@ -114,6 +114,8 @@ model Property {
   info_guide         InfoGuide?
   statement_expenses StatementExpense[]
   statement_booking_overrides StatementBookingOverride[]
+
+  @@index([client_id])
 }
 
 model Client {
@@ -134,6 +136,7 @@ model Client {
   statement_expenses StatementExpense[]
 
   @@unique([email])
+  @@index([status])
 }
 
 model StatementExpense {
@@ -220,6 +223,10 @@ model Booking {
 
   @@unique([confirmation_code])
   @@index([owner_statement_id])
+  @@index([property_id])
+  @@index([check_in])
+  @@index([check_out])
+  @@index([property_id, check_in, check_out])
 }
 
 model CsvImportLog {

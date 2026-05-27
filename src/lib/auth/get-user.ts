@@ -10,10 +10,17 @@ function parseRole(value: unknown): AppRole | null {
   return null
 }
 
+function parseFullName(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 export type AuthUser = {
   id: string
   email: string | null
   role: AppRole | null
+  fullName: string | null
 }
 
 export const getUser = cache(async (): Promise<AuthUser | null> => {
@@ -29,5 +36,6 @@ export const getUser = cache(async (): Promise<AuthUser | null> => {
     id: user.id,
     email: user.email ?? null,
     role: parseRole(user.user_metadata?.role),
+    fullName: parseFullName(user.user_metadata?.full_name),
   }
 })

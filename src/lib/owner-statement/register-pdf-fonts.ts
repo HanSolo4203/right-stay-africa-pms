@@ -31,8 +31,11 @@ export function getOwnerStatementPdfFontFamily(): OwnerStatementPdfFontFamily {
     Font.register({
       family: "Arial",
       fonts: [
-        { src: regular, fontWeight: 400 },
-        { src: bold, fontWeight: 700 },
+        { src: regular, fontWeight: 400, fontStyle: "normal" },
+        // No separate italic TTF — map italic to regular so react-pdf can resolve the family.
+        { src: regular, fontWeight: 400, fontStyle: "italic" },
+        { src: bold, fontWeight: 700, fontStyle: "normal" },
+        { src: bold, fontWeight: 700, fontStyle: "italic" },
       ],
     })
   } catch (e) {

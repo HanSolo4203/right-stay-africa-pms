@@ -169,6 +169,8 @@ function PropertyStatementPanel({
   onStatementUpdated: (updated?: PropertyStatement) => void | Promise<void>
 }) {
   const [generating, setGenerating] = useState(false)
+  const [isPdfDownloading, setIsPdfDownloading] = useState(false)
+  const [isPdfPreviewing, setIsPdfPreviewing] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
   const [finalizeOpen, setFinalizeOpen] = useState(false)
@@ -487,7 +489,7 @@ function PropertyStatementPanel({
       toast.error("Select at least one booking to include.")
       return
     }
-    setGenerating(true)
+    setIsPdfDownloading(true)
     try {
       const res = await fetch("/api/clients/statements/generate", {
         method: "POST",
@@ -519,7 +521,7 @@ function PropertyStatementPanel({
     } catch {
       toast.error("Failed to generate PDF.")
     } finally {
-      setGenerating(false)
+      setIsPdfDownloading(false)
     }
   }
 
@@ -543,7 +545,7 @@ function PropertyStatementPanel({
       toast.error("Select at least one booking to include.")
       return
     }
-    setGenerating(true)
+    setIsPdfPreviewing(true)
     try {
       const res = await fetch("/api/clients/statements/generate", {
         method: "POST",
@@ -563,7 +565,7 @@ function PropertyStatementPanel({
     } catch {
       toast.error("Failed to generate preview.")
     } finally {
-      setGenerating(false)
+      setIsPdfPreviewing(false)
     }
   }
 
@@ -613,6 +615,8 @@ function PropertyStatementPanel({
           disabled={
             savingDraft ||
             generating ||
+            isPdfDownloading ||
+            isPdfPreviewing ||
             finalizing ||
             selectedIds.size === 0 ||
             statement.isVirtualClient
@@ -626,7 +630,14 @@ function PropertyStatementPanel({
           <Button
             type="button"
             className="bg-emerald-700 hover:bg-emerald-800"
-            disabled={generating || savingDraft || finalizing || selectedIds.size === 0}
+            disabled={
+              generating ||
+              isPdfDownloading ||
+              isPdfPreviewing ||
+              savingDraft ||
+              finalizing ||
+              selectedIds.size === 0
+            }
             onClick={() => setFinalizeOpen(true)}
           >
             {finalizing ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -636,27 +647,52 @@ function PropertyStatementPanel({
         <Button
           type="button"
           className="bg-emerald-700 hover:bg-emerald-800"
-          disabled={generating || savingDraft || finalizing || selectedIds.size === 0}
+          disabled={
+            generating ||
+            isPdfDownloading ||
+            isPdfPreviewing ||
+            savingDraft ||
+            finalizing ||
+            selectedIds.size === 0
+          }
           onClick={() =>
             void (existingStatementStatus === "FINAL" ? updateFinalStatement() : downloadPdf())
           }
         >
-          {generating ? <Loader2 className="size-4 animate-spin" /> : null}
-          {existingStatementStatus === "FINAL" ? "Update" : "Download PDF"}
+          {existingStatementStatus === "FINAL" && generating ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : isPdfDownloading ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : null}
+          {existingStatementStatus === "FINAL"
+            ? generating
+              ? "Updating…"
+              : "Update"
+            : isPdfDownloading
+              ? "Generating…"
+              : "Download PDF"}
         </Button>
         <Button
           type="button"
           variant="outline"
-          disabled={generating || savingDraft || finalizing || selectedIds.size === 0}
+          disabled={
+            generating ||
+            isPdfDownloading ||
+            isPdfPreviewing ||
+            savingDraft ||
+            finalizing ||
+            selectedIds.size === 0
+          }
           onClick={previewPdf}
         >
-          Preview PDF
+          {isPdfPreviewing ? <Loader2 className="size-4 animate-spin" /> : null}
+          {isPdfPreviewing ? "Generating…" : "Preview PDF"}
         </Button>
         {existingStatementStatus === "FINAL" && statement.existingStatementFileUrl ? (
           <Button
             type="button"
             variant="outline"
-            disabled={generating || savingDraft || finalizing}
+            disabled={generating || isPdfDownloading || isPdfPreviewing || savingDraft || finalizing}
             onClick={() => void viewOnFilePdf()}
           >
             View on file
@@ -1053,6 +1089,8 @@ export function ClientsStatementsView() {
   const [batchLoading, setBatchLoading] = useState(false)
   const [data, setData] = useState<StatementsResponse | null>(null)
   const statementsCacheRef = useRef<Map<string, StatementsResponse>>(new Map())
+  const fetchGenerationRef = useRef(0)
+  const statementsFetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchStatements = useCallback(
     async (options?: { silent?: boolean; force?: boolean }) => {
@@ -1062,6 +1100,8 @@ export function ClientsStatementsView() {
 
       if (cached && !options?.force) {
         setData(cached)
+        setLoading(false)
+        setRefreshing(false)
         if (options?.silent) return
       }
 
@@ -1071,6 +1111,8 @@ export function ClientsStatementsView() {
         setLoading(true)
       }
 
+      const generation = ++fetchGenerationRef.current
+
       try {
         const params = new URLSearchParams({
           month: String(month),
@@ -1079,6 +1121,7 @@ export function ClientsStatementsView() {
         if (scopedClientId) params.set("clientId", scopedClientId)
         const res = await fetch(`/api/clients/statements?${params.toString()}`)
         const json = (await res.json()) as StatementsResponse & { error?: string }
+        if (generation !== fetchGenerationRef.current) return
         if (!res.ok) {
           toast.error(json.error ?? "Failed to load statements.")
           return
@@ -1105,14 +1148,29 @@ export function ClientsStatementsView() {
         statementsCacheRef.current.delete(statementsCacheKey(month, year, null))
         return
       }
-      await fetchStatements({ silent: true })
+      if (editClientId) {
+        statementsCacheRef.current.delete(statementsCacheKey(month, year, editClientId))
+        statementsCacheRef.current.delete(statementsCacheKey(month, year, null))
+      }
+      await fetchStatements({ silent: true, force: true })
     },
     [data, editClientId, month, year, fetchStatements]
   )
 
   useEffect(() => {
-    void fetchStatements()
-  }, [fetchStatements])
+    if (statementsFetchDebounceRef.current) {
+      clearTimeout(statementsFetchDebounceRef.current)
+    }
+    const delay = isEditMode ? 300 : 0
+    statementsFetchDebounceRef.current = setTimeout(() => {
+      void fetchStatements()
+    }, delay)
+    return () => {
+      if (statementsFetchDebounceRef.current) {
+        clearTimeout(statementsFetchDebounceRef.current)
+      }
+    }
+  }, [fetchStatements, isEditMode])
 
   const setPeriodTab = (tab: StatementPeriodTab) => {
     const params = new URLSearchParams()
@@ -1130,6 +1188,11 @@ export function ClientsStatementsView() {
 
   const setEditPeriod = (m: number, y: number) => {
     if (!editClientId) return
+    const cacheKey = statementsCacheKey(m, y, editClientId)
+    if (!statementsCacheRef.current.has(cacheKey)) {
+      setData(null)
+      setLoading(true)
+    }
     const params = new URLSearchParams()
     params.set("client", editClientId)
     params.set("month", String(m))
@@ -1139,6 +1202,17 @@ export function ClientsStatementsView() {
   }
 
   const openStatementEditor = (row: StatementOverviewRow) => {
+    const cacheKey = statementsCacheKey(row.month, row.year, row.clientId)
+    const cached = statementsCacheRef.current.get(cacheKey)
+    if (cached) {
+      setData(cached)
+      setLoading(false)
+      setRefreshing(false)
+    } else {
+      setData(null)
+      setLoading(true)
+      setRefreshing(false)
+    }
     const params = new URLSearchParams()
     params.set("client", row.clientId)
     params.set("month", String(row.month))
@@ -1179,6 +1253,38 @@ export function ClientsStatementsView() {
     () => (data ? flattenClientsToOverviewRows(data.clients, month, year) : []),
     [data, month, year]
   )
+
+  useEffect(() => {
+    if (!isEditMode || !editClientId || !dataReady) return
+
+    const prefetch = (m: number, y: number) => {
+      const key = statementsCacheKey(m, y, editClientId)
+      if (statementsCacheRef.current.has(key)) return
+      const params = new URLSearchParams({
+        month: String(m),
+        year: String(y),
+        clientId: editClientId,
+      })
+      fetch(`/api/clients/statements?${params.toString()}`)
+        .then((r) => r.json())
+        .then((json: StatementsResponse) => {
+          statementsCacheRef.current.set(key, json)
+        })
+        .catch(() => {})
+    }
+
+    const prev =
+      month === 1 ? { m: 12, y: year - 1 } : { m: month - 1, y: year }
+    const next =
+      month === 12 ? { m: 1, y: year + 1 } : { m: month + 1, y: year }
+
+    const timer = setTimeout(() => {
+      prefetch(prev.m, prev.y)
+      prefetch(next.m, next.y)
+    }, 800)
+
+    return () => clearTimeout(timer)
+  }, [isEditMode, editClientId, dataReady, month, year])
 
   const selectedClient = isEditMode
     ? (clients.find((c) => c.clientId === editClientId) ?? null)

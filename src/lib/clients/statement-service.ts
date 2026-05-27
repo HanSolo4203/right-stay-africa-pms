@@ -1,7 +1,11 @@
 import "server-only"
 
 import { randomUUID } from "node:crypto"
-import { BookingStatus, ClientStatus, StatementSource, StatementStatus } from "@prisma/client"
+import { ClientStatus, StatementSource, StatementStatus } from "@prisma/client"
+import {
+  STATEMENT_ACTIVE_BOOKING_STATUSES,
+  statementPeriodBookingWhere,
+} from "@/lib/clients/statement-booking-window"
 import { buildSnapshotV1 } from "@/lib/owner-statement/compute"
 import {
   applyPreviewTotalsToStatement,
@@ -16,6 +20,7 @@ import {
 } from "@/lib/owner-statement/types"
 import { prisma } from "@/lib/prisma"
 import { getAnalyticsChannelLabel } from "@/lib/property-booking-analytics"
+import type { StatementExpenseCategoryValue } from "@/lib/validations/statement-expense"
 import { expensesToManualLines, loadStatementExpenses } from "@/lib/clients/statement-expenses"
 import { parseManagementFeeType } from "@/lib/clients/management-fee-calculator"
 import {
@@ -44,13 +49,84 @@ import type { ClientStatementSummary, PropertyStatement, StatementBookingOverrid
 
 const STATEMENTS_BUCKET = "documents"
 
-const ACTIVE = new Set<BookingStatus>([
-  BookingStatus.CONFIRMED,
-  BookingStatus.CHECKED_IN,
-  BookingStatus.CHECKED_OUT,
-])
+const ACTIVE = new Set(STATEMENT_ACTIVE_BOOKING_STATUSES)
 
 const bookingSelect = statementBookingSelect
+
+type StatementExpenseRow = Awaited<ReturnType<typeof loadStatementExpenses>>[number]
+
+type BatchedStatementAuxiliary = {
+  expensesByPropertyClient: Map<string, StatementExpenseRow[]>
+  overridesByProperty: Map<string, StatementBookingOverrideRow[]>
+}
+
+function auxiliaryKey(clientId: string, propertyId: string) {
+  return `${clientId}:${propertyId}`
+}
+
+async function loadBatchedStatementAuxiliary(
+  entries: Array<{ clientId: string; propertyId: string; isVirtual: boolean }>,
+  month: number,
+  year: number
+): Promise<BatchedStatementAuxiliary> {
+  const propertyIds = [...new Set(entries.map((e) => e.propertyId))]
+  const expensesByPropertyClient = new Map<string, StatementExpenseRow[]>()
+  const overridesByProperty = new Map<string, StatementBookingOverrideRow[]>()
+
+  if (propertyIds.length === 0) {
+    return { expensesByPropertyClient, overridesByProperty }
+  }
+
+  const realClientIds = [
+    ...new Set(entries.filter((e) => !e.isVirtual).map((e) => e.clientId)),
+  ]
+
+  const [expenseRows, overrideRows] = await Promise.all([
+    realClientIds.length > 0
+      ? prisma.statementExpense.findMany({
+          where: {
+            month,
+            year,
+            property_id: { in: propertyIds },
+            client_id: { in: realClientIds },
+          },
+          orderBy: { created_at: "asc" },
+        })
+      : Promise.resolve([]),
+    prisma.statementBookingOverride.findMany({
+      where: { month, year, property_id: { in: propertyIds } },
+    }),
+  ])
+
+  for (const row of expenseRows) {
+    const key = auxiliaryKey(row.client_id, row.property_id)
+    const list = expensesByPropertyClient.get(key) ?? []
+    list.push({
+      id: row.id,
+      clientId: row.client_id,
+      propertyId: row.property_id,
+      month: row.month,
+      year: row.year,
+      description: row.description,
+      qty: row.qty,
+      unitPrice: Number(row.unit_price),
+      total: Number(row.total),
+      addTenPercent: row.add_ten_percent,
+      expenseCategory: row.expense_category as StatementExpenseCategoryValue | null,
+      createdAt: row.created_at.toISOString(),
+    })
+    expensesByPropertyClient.set(key, list)
+  }
+
+  for (const row of overrideRows) {
+    const serialized = serializeStatementBookingOverride(row)
+    const list = overridesByProperty.get(row.property_id) ?? []
+    list.push(serialized)
+    overridesByProperty.set(row.property_id, list)
+  }
+
+  return { expensesByPropertyClient, overridesByProperty }
+}
 
 function propertyStatementSelect(month: number, year: number) {
   return {
@@ -60,7 +136,7 @@ function propertyStatementSelect(month: number, year: number) {
     management_fee_type: true,
     welcome_pack_fee: true,
     bookings: {
-      where: { status: { in: [...ACTIVE] } },
+      where: statementPeriodBookingWhere(month, year),
       select: bookingSelect,
     },
     statements: {
@@ -96,12 +172,21 @@ export async function loadClientStatementsForPeriod(
     if (!p) return null
     const ownerName = p.owner?.full_name?.trim()
     const label = ownerName ? `${ownerName} — ${p.name}` : `No owner — ${p.name}`
+    const auxiliary = await loadBatchedStatementAuxiliary(
+      [{ clientId, propertyId: p.id, isVirtual: true }],
+      month,
+      year
+    )
     return {
       clientId,
       clientName: label,
       clientEmail: p.owner?.email ?? "",
       clientStatus: ClientStatus.ACTIVE,
-      properties: [await propertyToStatement(p, clientId, month, year, true)],
+      properties: [
+        await propertyToStatement(p, clientId, month, year, true, {
+          auxiliary,
+        }),
+      ],
     }
   }
 
@@ -115,38 +200,68 @@ export async function loadClientStatementsForPeriod(
   })
   if (!c) return null
 
+  const auxiliary = await loadBatchedStatementAuxiliary(
+    c.properties.map((p) => ({ clientId: c.id, propertyId: p.id, isVirtual: false })),
+    month,
+    year
+  )
+
+  const properties = await Promise.all(
+    c.properties.map((p) =>
+      propertyToStatement(p, c.id, month, year, false, { auxiliary })
+    )
+  )
+
   return {
     clientId: c.id,
     clientName: c.name,
     clientEmail: c.email,
     clientStatus: c.status,
-    properties: await Promise.all(
-      c.properties.map((p) => propertyToStatement(p, c.id, month, year, false))
-    ),
+    properties,
   }
 }
 
 export async function loadClientsWithStatements(
   month: number,
-  year: number
+  year: number,
+  options?: { omitBookings?: boolean }
 ): Promise<ClientStatementSummary[]> {
-  const clients = await prisma.client.findMany({
-    orderBy: [{ status: "asc" }, { name: "asc" }],
-    include: {
-      properties: {
-        select: propertyStatementSelect(month, year),
-      },
-    },
-  })
+  const omitBookings = options?.omitBookings ?? false
 
-  const unassigned = await prisma.property.findMany({
-    where: { client_id: null },
-    select: {
-      ...propertyStatementSelect(month, year),
-      owner: { select: { full_name: true, email: true } },
-    },
-    orderBy: { name: "asc" },
-  })
+  const [clients, unassigned] = await Promise.all([
+    prisma.client.findMany({
+      orderBy: [{ status: "asc" }, { name: "asc" }],
+      include: {
+        properties: {
+          select: propertyStatementSelect(month, year),
+        },
+      },
+    }),
+    prisma.property.findMany({
+      where: { client_id: null },
+      select: {
+        ...propertyStatementSelect(month, year),
+        owner: { select: { full_name: true, email: true } },
+      },
+      orderBy: { name: "asc" },
+    }),
+  ])
+
+  const auxiliaryEntries = [
+    ...clients.flatMap((c) =>
+      c.properties.map((p) => ({
+        clientId: c.id,
+        propertyId: p.id,
+        isVirtual: false,
+      }))
+    ),
+    ...unassigned.map((p) => ({
+      clientId: `property:${p.id}`,
+      propertyId: p.id,
+      isVirtual: true,
+    })),
+  ]
+  const auxiliary = await loadBatchedStatementAuxiliary(auxiliaryEntries, month, year)
 
   const summaries: ClientStatementSummary[] = await Promise.all(
     clients.map(async (c) => ({
@@ -155,7 +270,12 @@ export async function loadClientsWithStatements(
       clientEmail: c.email,
       clientStatus: c.status,
       properties: await Promise.all(
-        c.properties.map((p) => propertyToStatement(p, c.id, month, year, false))
+        c.properties.map((p) =>
+          propertyToStatement(p, c.id, month, year, false, {
+            auxiliary,
+            omitBookings,
+          })
+        )
       ),
     }))
   )
@@ -163,13 +283,17 @@ export async function loadClientsWithStatements(
   for (const p of unassigned) {
     const ownerName = p.owner?.full_name?.trim()
     const label = ownerName ? `${ownerName} — ${p.name}` : `No owner — ${p.name}`
+    const virtualId = `property:${p.id}`
     summaries.push({
-      clientId: `property:${p.id}`,
+      clientId: virtualId,
       clientName: label,
       clientEmail: p.owner?.email ?? "",
       clientStatus: ClientStatus.ACTIVE,
       properties: [
-        await propertyToStatement(p, `property:${p.id}`, month, year, true),
+        await propertyToStatement(p, virtualId, month, year, true, {
+          auxiliary,
+          omitBookings,
+        }),
       ],
     })
   }
@@ -221,7 +345,11 @@ async function propertyToStatement(
   clientId: string,
   month: number,
   year: number,
-  isVirtualClient: boolean
+  isVirtualClient: boolean,
+  options?: {
+    auxiliary?: BatchedStatementAuxiliary
+    omitBookings?: boolean
+  }
 ) {
   const existing = p.statements[0]
   const commission =
@@ -230,10 +358,20 @@ async function propertyToStatement(
       : null
   const welcomePack =
     p.welcome_pack_fee != null ? Number(p.welcome_pack_fee) : 0
-  const [expenses, bookingOverrides] = await Promise.all([
-    isVirtualClient ? Promise.resolve([]) : loadStatementExpenses(clientId, p.id, month, year),
-    loadBookingOverrides(p.id, month, year),
-  ])
+
+  let expenses: StatementExpenseRow[]
+  let bookingOverrides: StatementBookingOverrideRow[]
+  if (options?.auxiliary) {
+    expenses = isVirtualClient
+      ? []
+      : (options.auxiliary.expensesByPropertyClient.get(auxiliaryKey(clientId, p.id)) ?? [])
+    bookingOverrides = options.auxiliary.overridesByProperty.get(p.id) ?? []
+  } else {
+    ;[expenses, bookingOverrides] = await Promise.all([
+      isVirtualClient ? Promise.resolve([]) : loadStatementExpenses(clientId, p.id, month, year),
+      loadBookingOverrides(p.id, month, year),
+    ])
+  }
 
   const snap =
     existing?.snapshot != null && isOwnerStatementSnapshotV1(existing.snapshot)
@@ -281,7 +419,9 @@ async function propertyToStatement(
     automaticExpenses,
     existingStatementFileUrl: existing?.file_url ?? null,
     existingStatementFileName: existing?.file_name ?? null,
-    bookings: p.bookings.map(serializeStatementBookingRow),
+    bookings: options?.omitBookings
+      ? []
+      : p.bookings.map(serializeStatementBookingRow),
     statementSnapshot: snap,
     bookingOverrides,
   }
@@ -308,7 +448,7 @@ export async function rebuildPropertyStatementForPeriod(
       management_fee_type: true,
       welcome_pack_fee: true,
       bookings: {
-        where: { status: { in: [...ACTIVE] } },
+        where: statementPeriodBookingWhere(month, year),
         select: bookingSelect,
       },
       statements: {
@@ -541,7 +681,10 @@ export async function generatePropertyStatement(input: {
   })
 
   const allBookings = await prisma.booking.findMany({
-    where: { property_id: input.propertyId, status: { in: [...ACTIVE] } },
+    where: {
+      property_id: input.propertyId,
+      ...statementPeriodBookingWhere(input.month, input.year),
+    },
     select: bookingSelect,
   })
 
@@ -704,7 +847,10 @@ export async function savePropertyStatementDraft(input: {
   })
 
   const allBookings = await prisma.booking.findMany({
-    where: { property_id: input.propertyId, status: { in: [...ACTIVE] } },
+    where: {
+      property_id: input.propertyId,
+      ...statementPeriodBookingWhere(input.month, input.year),
+    },
     select: bookingSelect,
   })
 
@@ -816,6 +962,25 @@ export async function generateAllStatements(month: number, year: number) {
   let skipped = 0
   const errors: string[] = []
 
+  const propertyIds = summaries.flatMap((c) => c.properties.map((p) => p.propertyId))
+  const allBookings =
+    propertyIds.length > 0
+      ? await prisma.booking.findMany({
+          where: {
+            property_id: { in: propertyIds },
+            ...statementPeriodBookingWhere(month, year),
+          },
+          select: { ...bookingSelect, property_id: true },
+        })
+      : []
+  const bookingsByProperty = new Map<string, StatementBookingInput[]>()
+  for (const row of allBookings) {
+    const { property_id, ...booking } = row as StatementBookingInput & { property_id: string }
+    const list = bookingsByProperty.get(property_id) ?? []
+    list.push(booking)
+    bookingsByProperty.set(property_id, list)
+  }
+
   for (const client of summaries) {
     if (client.clientStatus === ClientStatus.ARCHIVED) continue
     for (const prop of client.properties) {
@@ -824,10 +989,7 @@ export async function generateAllStatements(month: number, year: number) {
         continue
       }
       const eligible = filterBookingsForStatementMonth(
-        await prisma.booking.findMany({
-          where: { property_id: prop.propertyId, status: { in: [...ACTIVE] } },
-          select: bookingSelect,
-        }),
+        bookingsByProperty.get(prop.propertyId) ?? [],
         year,
         month
       )

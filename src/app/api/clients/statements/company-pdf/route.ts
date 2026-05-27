@@ -47,6 +47,7 @@ export async function POST(request: Request) {
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to generate company statement."
-    return NextResponse.json({ error: msg }, { status: 400 })
+    console.error("[clients/statements/company-pdf POST]", e)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

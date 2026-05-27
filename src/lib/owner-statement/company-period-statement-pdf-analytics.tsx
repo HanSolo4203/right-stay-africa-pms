@@ -209,9 +209,15 @@ const styles = {
 function KpiChip({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <View style={styles.kpiCard}>
-      <Text style={styles.kpiLabel}>{label}</Text>
-      <Text style={styles.kpiValue}>{value}</Text>
-      <Text style={styles.kpiSub}>{sub}</Text>
+      <Text style={styles.kpiLabel} wrap={false}>
+        {label}
+      </Text>
+      <Text style={styles.kpiValue} wrap={false}>
+        {value}
+      </Text>
+      <Text style={styles.kpiSub} wrap={false}>
+        {sub}
+      </Text>
     </View>
   )
 }

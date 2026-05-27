@@ -1,7 +1,8 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import { useMemo, useState } from "react"
-import { ChevronDown, ChevronUp, FileDown, Loader2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Eye, FileDown, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -19,6 +20,11 @@ import {
 } from "@/lib/clients/portfolio-period-summary"
 import { formatMoneyZar } from "@/lib/owner-statement/format-money"
 import type { ClientStatementSummary } from "@/types/statement"
+
+const PdfViewer = dynamic(
+  () => import("@/components/shared/pdf-viewer").then((m) => m.PdfViewer),
+  { ssr: false, loading: () => null }
+)
 
 function formatPeriod(month: number, year: number) {
   return new Date(year, month - 1, 1).toLocaleString("en-ZA", {
@@ -60,38 +66,64 @@ export function ClientsStatementsPortfolioSummary({
   loading?: boolean
 }) {
   const [breakdownOpen, setBreakdownOpen] = useState(true)
-  const [generating, setGenerating] = useState(false)
+  const [isViewing, setIsViewing] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState("")
 
   const summary: PortfolioPeriodSummary | null = useMemo(() => {
     if (clients.length === 0) return null
     return aggregatePortfolioFromClients(clients, month, year)
   }, [clients, month, year])
 
-  const downloadPdf = async () => {
-    setGenerating(true)
+  const companyPdfFilename = `Right-Stay-Portfolio_${year}-${String(month).padStart(2, "0")}.pdf`
+
+  const fetchCompanyPdfBlob = async (): Promise<Blob | null> => {
+    const res = await fetch("/api/clients/statements/company-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ month, year }),
+    })
+    if (!res.ok) {
+      const data = (await res.json()) as { error?: string }
+      toast.error(data.error ?? "Failed to generate company statement.")
+      return null
+    }
+    return res.blob()
+  }
+
+  const viewCompanyStatement = async () => {
+    setIsViewing(true)
     try {
-      const res = await fetch("/api/clients/statements/company-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month, year }),
-      })
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string }
-        toast.error(data.error ?? "Failed to generate PDF.")
-        return
-      }
-      const blob = await res.blob()
+      const blob = await fetchCompanyPdfBlob()
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+      setPreviewUrl(url)
+      setPreviewOpen(true)
+    } catch {
+      toast.error("Failed to generate company statement.")
+    } finally {
+      setIsViewing(false)
+    }
+  }
+
+  const downloadPdf = async () => {
+    setIsDownloading(true)
+    try {
+      const blob = await fetchCompanyPdfBlob()
+      if (!blob) return
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `Right-Stay-Portfolio_${year}-${String(month).padStart(2, "0")}.pdf`
+      a.download = companyPdfFilename
       a.click()
       URL.revokeObjectURL(url)
       toast.success("Company statement downloaded.")
     } catch {
-      toast.error("Failed to generate PDF.")
+      toast.error("Failed to generate company statement.")
     } finally {
-      setGenerating(false)
+      setIsDownloading(false)
     }
   }
 
@@ -115,15 +147,34 @@ export function ClientsStatementsPortfolioSummary({
           <CardTitle className="text-base font-semibold">Portfolio summary</CardTitle>
           <p className="mt-1 text-sm text-slate-600">{formatPeriod(month, year)}</p>
         </div>
-        <Button
-          type="button"
-          className="bg-emerald-700 hover:bg-emerald-800"
-          disabled={generating}
-          onClick={() => void downloadPdf()}
-        >
-          {generating ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
-          Download company statement
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isViewing || isDownloading}
+            onClick={() => void viewCompanyStatement()}
+          >
+            {isViewing ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Eye className="size-4" />
+            )}
+            {isViewing ? "Generating…" : "View company statement"}
+          </Button>
+          <Button
+            type="button"
+            className="bg-emerald-700 hover:bg-emerald-800"
+            disabled={isViewing || isDownloading}
+            onClick={() => void downloadPdf()}
+          >
+            {isDownloading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <FileDown className="size-4" />
+            )}
+            {isDownloading ? "Generating…" : "Download company statement"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-slate-500">
@@ -244,6 +295,22 @@ export function ClientsStatementsPortfolioSummary({
           ) : null}
         </div>
       </CardContent>
+
+      {previewUrl ? (
+        <PdfViewer
+          signedUrl={previewUrl}
+          fileName={companyPdfFilename}
+          open={previewOpen}
+          onOpenChange={(open) => {
+            setPreviewOpen(open)
+            if (!open && previewUrl) {
+              URL.revokeObjectURL(previewUrl)
+              setPreviewUrl("")
+            }
+          }}
+          hideTrigger
+        />
+      ) : null}
     </Card>
   )
 }
