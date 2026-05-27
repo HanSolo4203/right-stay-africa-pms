@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Plus, Wrench, LayoutList, LayoutGrid } from "lucide-react"
+import { Plus, LayoutList, LayoutGrid } from "lucide-react"
 import { JobCard } from "@/components/maintenance/JobCard"
 import { JobDrawer } from "@/components/maintenance/JobDrawer"
 import { JobForm } from "@/components/maintenance/JobForm"
@@ -155,7 +155,7 @@ export default function MaintenancePage() {
 
   const onStatusChange = async (
     job: MaintenanceJobDto,
-    status: string,
+    status: MaintenanceJobDto["status"],
     payload?: { actualCost?: number; chargeToOwner: boolean; ownerStatementNote?: string }
   ) => {
     setStatusSaving(true)
@@ -228,7 +228,7 @@ export default function MaintenancePage() {
 
   const onDeleteOrCancel = async (job: MaintenanceJobDto) => {
     const prev = jobs
-    const optimistic = jobs.map((j) =>
+    const optimistic: MaintenanceJobDto[] = jobs.map((j) =>
       j.id === job.id ? { ...j, status: "cancelled" } : j
     )
     setJobs(optimistic)
@@ -408,7 +408,7 @@ export default function MaintenancePage() {
                     onStatusChange={(j, status) =>
                       status === "cancelled"
                         ? void onDeleteOrCancel(j)
-                        : void onStatusChange(j, status)
+                        : void onStatusChange(j, status as MaintenanceJobDto["status"])
                     }
                   />
                 ))}
@@ -418,7 +418,7 @@ export default function MaintenancePage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-4">
             {(["open", "in_progress", "completed", "cancelled"] as const).map(
-              (status) => (
+              (status: MaintenanceJobDto["status"]) => (
                 <div key={status} className="space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-xs font-semibold uppercase tracking-wide spike-text-secondary">
@@ -450,7 +450,7 @@ export default function MaintenancePage() {
                         onStatusChange={(j, nextStatus) =>
                           nextStatus === "cancelled"
                             ? void onDeleteOrCancel(j)
-                            : void onStatusChange(j, nextStatus)
+                            : void onStatusChange(j, nextStatus as MaintenanceJobDto["status"])
                         }
                       />
                     ))}
@@ -470,7 +470,7 @@ export default function MaintenancePage() {
         expenseYear={expenseYear}
         onOpenChange={setDrawerOpen}
         onStatusChange={(job, status, payload) =>
-          void onStatusChange(job, status, payload)
+          void onStatusChange(job, status as MaintenanceJobDto["status"], payload)
         }
       />
 

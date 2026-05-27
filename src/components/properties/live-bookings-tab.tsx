@@ -11,7 +11,7 @@ import {
   parseISO,
   startOfMonth,
 } from "date-fns"
-import { ExternalLink, RefreshCw } from "lucide-react"
+import { RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -121,7 +121,7 @@ function computeMonthlyStats(bookings: LiveBookingRow[]) {
     new Date(formatISO(monthStart, { representation: "date" }) + "T12:00:00")
   )
 
-  let totalBookings = bookings.length
+  const totalBookings = bookings.length
   let bookingsThisMonth = 0
   let bookedNightsThisMonth = 0
 
