@@ -97,6 +97,8 @@ export type PortfolioTrackTotals = {
   ownerPayouts: number
   managementFees: number
   additionalExpenses: number
+  grossRevenue: number
+  bookingCount: number
   rightStayIncome: RightStayIncomeBreakdown
   propertiesWithFigures: number
 }
@@ -123,6 +125,9 @@ export type PortfolioPropertyRow = {
   previewRsaIncome: number | null
   finalBookedNights: number | null
   previewBookedNights: number | null
+  previewGrossRevenue: number | null
+  previewManagementFees: number | null
+  previewBookingCount: number | null
 }
 
 function round2(n: number): number {
@@ -412,7 +417,7 @@ function accumulateLines(
   }
 }
 
-function propertyHasPreviewFigures(property: PropertyStatement): boolean {
+export function propertyHasPreviewFigures(property: PropertyStatement): boolean {
   return (
     property.lines.length > 0 ||
     property.existingStatementId != null ||
@@ -445,12 +450,16 @@ export function aggregatePortfolioFromClients(
   let finalOwnerPayouts = 0
   let finalManagementFees = 0
   let finalAdditionalExpenses = 0
+  let finalGrossRevenue = 0
+  let finalBookingCount = 0
   let finalPropertiesWithFigures = 0
   const finalLineAcc = emptyLineAccumulation()
 
   let previewOwnerPayouts = 0
   let previewManagementFees = 0
   let previewAdditionalExpenses = 0
+  let previewGrossRevenue = 0
+  let previewBookingCount = 0
   let previewPropertiesWithFigures = 0
   const previewLineAcc = emptyLineAccumulation()
 
@@ -471,6 +480,9 @@ export function aggregatePortfolioFromClients(
       let previewRsa: number | null = null
       let finalBookedNights: number | null = null
       let previewBookedNights: number | null = null
+      let propertyPreviewGrossRevenue: number | null = null
+      let propertyPreviewManagementFees: number | null = null
+      let propertyPreviewBookingCount: number | null = null
 
       if (status === "FINAL" && snap != null) {
         finalisedPropertyCount += 1
@@ -482,6 +494,8 @@ export function aggregatePortfolioFromClients(
         finalOwnerPayouts = round2(finalOwnerPayouts + totals.netToOwner)
         finalManagementFees = round2(finalManagementFees + totals.totalManagementFees)
         finalAdditionalExpenses = round2(finalAdditionalExpenses + totals.additionalExpensesTotal)
+        finalGrossRevenue = round2(finalGrossRevenue + totals.grossRevenue)
+        finalBookingCount += totals.bookingCount
         finalPropertiesWithFigures += 1
 
         for (const cat of ALL_CATEGORIES) {
@@ -511,6 +525,8 @@ export function aggregatePortfolioFromClients(
         previewAdditionalExpenses = round2(
           previewAdditionalExpenses + property.totals.additionalExpensesTotal
         )
+        previewGrossRevenue = round2(previewGrossRevenue + property.totals.grossRevenue)
+        previewBookingCount += property.totals.bookingCount
         previewPropertiesWithFigures += 1
 
         for (const cat of ALL_CATEGORIES) {
@@ -530,6 +546,9 @@ export function aggregatePortfolioFromClients(
         previewOwnerPayout = property.totals.netToOwner
         previewRsa = computePropertyRsaIncome(property.totals.totalManagementFees, lineAcc)
         previewBookedNights = property.totals.totalNights
+        propertyPreviewGrossRevenue = property.totals.grossRevenue
+        propertyPreviewManagementFees = property.totals.totalManagementFees
+        propertyPreviewBookingCount = property.totals.bookingCount
       }
 
       propertyRows.push({
@@ -543,6 +562,9 @@ export function aggregatePortfolioFromClients(
         previewRsaIncome: previewRsa,
         finalBookedNights,
         previewBookedNights,
+        previewGrossRevenue: propertyPreviewGrossRevenue,
+        previewManagementFees: propertyPreviewManagementFees,
+        previewBookingCount: propertyPreviewBookingCount,
       })
     }
   }
@@ -560,6 +582,8 @@ export function aggregatePortfolioFromClients(
     ownerPayouts: finalOwnerPayouts,
     managementFees: finalManagementFees,
     additionalExpenses: finalAdditionalExpenses,
+    grossRevenue: finalGrossRevenue,
+    bookingCount: finalBookingCount,
     rightStayIncome: sumRightStayIncome({
       commission: finalLineAcc.income.commission,
       cleaning: finalLineAcc.income.cleaning,
@@ -574,6 +598,8 @@ export function aggregatePortfolioFromClients(
     ownerPayouts: previewOwnerPayouts,
     managementFees: previewManagementFees,
     additionalExpenses: previewAdditionalExpenses,
+    grossRevenue: previewGrossRevenue,
+    bookingCount: previewBookingCount,
     rightStayIncome: sumRightStayIncome({
       commission: previewLineAcc.income.commission,
       cleaning: previewLineAcc.income.cleaning,

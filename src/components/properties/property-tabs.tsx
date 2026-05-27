@@ -1,8 +1,10 @@
 "use client"
 
 import { Suspense, useEffect, useState } from "react"
+import { CalendarDays } from "lucide-react"
 import { usePathname, useSearchParams } from "next/navigation"
 import type { BookingListRow } from "@/components/bookings/booking-list"
+import { PropertyCalendar } from "@/components/calendar/PropertyCalendar"
 import { BookingsTab } from "@/components/properties/bookings-tab"
 import { LiveBookingsTab } from "@/components/properties/live-bookings-tab"
 import { ListingLinkPreview } from "@/components/properties/listing-link-preview"
@@ -27,6 +29,7 @@ const tabItems = [
   { value: "owner", label: "Owner" },
   { value: "financials", label: "Financials" },
   { value: "bookings", label: "Bookings" },
+  { value: "calendar", label: "Calendar" },
   { value: "live-bookings", label: "Live Bookings" },
   { value: "maintenance", label: "Maintenance" },
   { value: "info-guide", label: "Info Guide" },
@@ -39,6 +42,7 @@ type TabValue = (typeof tabItems)[number]["value"]
 type PropertyTabsProps = {
   activeTab: TabValue
   propertyId: string
+  propertyName: string
   clientId: string | null
   userRole: "SUPER_ADMIN" | "PROPERTY_MANAGER" | "OWNER" | null
   statements: PropertyFinancialsStatementItem[]
@@ -110,6 +114,7 @@ function PropertyTabsFallback() {
 function PropertyTabsInner({
   activeTab,
   propertyId,
+  propertyName,
   clientId,
   userRole,
   statements,
@@ -148,29 +153,36 @@ function PropertyTabsInner({
   return (
     <Tabs value={tab} onValueChange={onTabChange} className="mt-6">
       <TabsList variant="line" className="w-full justify-start overflow-x-auto">
-        {tabItems.map((tab) => (
-          <TabsTrigger key={tab.value} value={tab.value}>
-            {tab.label}
+        {tabItems.map((item) => (
+          <TabsTrigger key={item.value} value={item.value}>
+            {item.value === "calendar" ? (
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarDays className="size-4 shrink-0" />
+                {item.label}
+              </span>
+            ) : (
+              item.label
+            )}
           </TabsTrigger>
         ))}
       </TabsList>
 
-      {tabItems.map((tab) => (
-        <TabsContent key={tab.value} value={tab.value}>
-          {tab.value === "owner" ? (
+      {tabItems.map((tabItem) => (
+        <TabsContent key={tabItem.value} value={tabItem.value}>
+          {tabItem.value === "owner" ? (
             <OwnerTab
               propertyId={propertyId}
               owner={owner}
               portalUserId={owner?.portal_user_id ?? null}
               canManagePortal={userRole === "SUPER_ADMIN" || userRole === "PROPERTY_MANAGER"}
             />
-          ) : tab.value === "maintenance" ? (
+          ) : tabItem.value === "maintenance" ? (
             <div className="space-y-4">
               <MaintenancePage />
             </div>
-          ) : tab.value === "info-guide" ? (
+          ) : tabItem.value === "info-guide" ? (
             <InfoGuideTab propertyId={propertyId} infoGuide={infoGuide} buildingInfo={buildingInfo} />
-          ) : tab.value === "financials" ? (
+          ) : tabItem.value === "financials" ? (
             <Tabs
               value={financialsSubTab}
               onValueChange={(v) => {
@@ -207,9 +219,9 @@ function PropertyTabsInner({
                 <ReceiptsList propertyId={propertyId} receipts={receipts} userRole={userRole} />
               </TabsContent>
             </Tabs>
-          ) : tab.value === "contract" ? (
+          ) : tabItem.value === "contract" ? (
             <ContractTab propertyId={propertyId} contracts={contracts} />
-          ) : tab.value === "overview" ? (
+          ) : tabItem.value === "overview" ? (
             <Card className="bg-white">
               <CardContent className="space-y-6 p-6">
                 <PropertyAnalyticsCard bookings={bookings} />
@@ -261,9 +273,13 @@ function PropertyTabsInner({
                 </div>
               </CardContent>
             </Card>
-          ) : tab.value === "bookings" ? (
+          ) : tabItem.value === "bookings" ? (
             <BookingsTab propertyId={propertyId} userRole={userRole} bookings={bookings} />
-          ) : tab.value === "live-bookings" ? (
+          ) : tabItem.value === "calendar" ? (
+            tab === "calendar" ? (
+              <PropertyCalendar propertyId={propertyId} propertyName={propertyName} />
+            ) : null
+          ) : tabItem.value === "live-bookings" ? (
             <LiveBookingsTab propertyId={propertyId} uplistingLinked={uplistingLinked} />
           ) : (
             <Card className="bg-white">

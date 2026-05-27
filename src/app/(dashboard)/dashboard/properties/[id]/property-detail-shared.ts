@@ -5,6 +5,7 @@ export const validTabs = [
   "owner",
   "financials",
   "bookings",
+  "calendar",
   "live-bookings",
   "info-guide",
   "contract",

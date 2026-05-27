@@ -685,7 +685,7 @@ function DashboardHeader({
           {greeting}, {displayName}
         </h1>
         <p className="mt-1 text-sm spike-text-muted">
-          Portfolio overview for {monthLabel}. Pro-rated calendar month (excl. cancelled).
+          Portfolio overview for {monthLabel}. Matches Clients → Statements portfolio summary (preview totals).
         </p>
       </div>
       <div className="flex flex-col items-end gap-1">

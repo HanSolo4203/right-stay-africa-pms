@@ -151,6 +151,7 @@ export async function PropertyDetailTabs({
     <PropertyTabs
       activeTab={activeTab}
       propertyId={property.id}
+      propertyName={property.name}
       clientId={property.client_id}
       owner={property.owner}
       infoGuide={

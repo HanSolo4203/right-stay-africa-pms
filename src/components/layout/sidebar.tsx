@@ -4,7 +4,9 @@ import Link from "next/link"
 import { useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
+  BarChart3,
   Building2,
+  CalendarDays,
   FileSpreadsheet,
   LayoutDashboard,
   LogOut,
@@ -28,8 +30,10 @@ type SidebarProps = {
 const links = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Properties", href: "/dashboard/properties", icon: Building2 },
-  { label: "Maintenance", href: "/dashboard/maintenance", icon: Wrench },
+  { label: "Calendar", href: "/calendar", icon: CalendarDays },
   { label: "Clients", href: "/clients", icon: Users },
+  { label: "Maintenance", href: "/dashboard/maintenance", icon: Wrench },
+  { label: "Reports", href: "/reports", icon: BarChart3 },
 ]
 
 const canManageImports = (role: string | null) =>
@@ -55,6 +59,7 @@ export function Sidebar({ email, role, mobileOpen = false, onNavigate, onClose }
     if (showImports) {
       router.prefetch("/bookings/import")
     }
+    router.prefetch("/reports")
     if (showSettings) {
       router.prefetch("/settings")
     }
