@@ -14,6 +14,12 @@ export type LiveBookingDto = {
   totalPrice: number | null
   currency: string
   lastSyncedAt: string | null
+  accommodationTotal: number | null
+  cleaningFee: number | null
+  channelCommission: number | null
+  managementFee: number | null
+  payout: number | null
+  origin: "webhook" | "api_sync"
 }
 
 const STATUS_QUERY_MAP: Record<string, BookingStatus> = {
@@ -77,6 +83,12 @@ export function toLiveBookingDto(booking: {
     totalPrice: Number(booking.total),
     currency: currencyFromRaw(booking.uplisting_raw),
     lastSyncedAt: booking.last_synced_at?.toISOString() ?? null,
+    accommodationTotal: null,
+    cleaningFee: null,
+    channelCommission: null,
+    managementFee: null,
+    payout: null,
+    origin: "api_sync",
   }
 }
 

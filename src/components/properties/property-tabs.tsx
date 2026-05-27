@@ -17,6 +17,7 @@ import { InfoGuideTab, type PropertyBuildingInfo } from "@/components/info-guide
 import { OwnerTab } from "@/components/owners/owner-tab"
 import { ContractTab } from "@/components/contracts/contract-tab"
 import { PropertyRemoteImage } from "@/components/properties/property-remote-image"
+import MaintenancePage from "@/app/(dashboard)/dashboard/maintenance/page"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type ReceiptCategoryValue } from "@/lib/types/receipt"
@@ -27,6 +28,7 @@ const tabItems = [
   { value: "financials", label: "Financials" },
   { value: "bookings", label: "Bookings" },
   { value: "live-bookings", label: "Live Bookings" },
+  { value: "maintenance", label: "Maintenance" },
   { value: "info-guide", label: "Info Guide" },
   { value: "contract", label: "Contract" },
   { value: "photos", label: "Photos" },
@@ -162,6 +164,10 @@ function PropertyTabsInner({
               portalUserId={owner?.portal_user_id ?? null}
               canManagePortal={userRole === "SUPER_ADMIN" || userRole === "PROPERTY_MANAGER"}
             />
+          ) : tab.value === "maintenance" ? (
+            <div className="space-y-4">
+              <MaintenancePage />
+            </div>
           ) : tab.value === "info-guide" ? (
             <InfoGuideTab propertyId={propertyId} infoGuide={infoGuide} buildingInfo={buildingInfo} />
           ) : tab.value === "financials" ? (

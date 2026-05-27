@@ -114,8 +114,61 @@ model Property {
   info_guide         InfoGuide?
   statement_expenses StatementExpense[]
   statement_booking_overrides StatementBookingOverride[]
+  maintenance_jobs       MaintenanceJob[]
 
   @@index([client_id])
+}
+
+model Contractor {
+  id        String   @id @default(cuid())
+  name      String
+  trade     String?
+  phone     String?
+  email     String?
+  company   String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs MaintenanceJob[]
+
+  @@index([isActive])
+  @@index([trade])
+}
+
+model MaintenanceJob {
+  id               String    @id @default(cuid())
+  propertyId       String
+  property         Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  category         String
+  priority         String    @default("medium")
+  status           String    @default("open")
+  contractorId     String?
+  contractor       Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  contractorName   String?
+  contractorPhone  String?
+  reportedAt       DateTime  @default(now())
+  scheduledFor     DateTime?
+  completedAt      DateTime?
+  dueBy            DateTime?
+  estimatedCost    Float?
+  actualCost       Float?
+  currency         String    @default("ZAR")
+  chargeToOwner    Boolean   @default(false)
+  ownerStatementNote String?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([propertyId])
+  @@index([status])
+  @@index([priority])
+  @@index([contractorId])
+  @@index([scheduledFor])
+  @@index([propertyId, status])
 }
 
 model Client {

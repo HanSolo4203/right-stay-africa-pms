@@ -4,11 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { getUser } from "@/lib/auth/get-user"
 import { prisma } from "@/lib/prisma"
-import {
-  syncAllPropertiesFullPreserveManual,
-  syncBookingsForProperty,
-  syncSingleProperty,
-} from "@/lib/uplisting"
+import { syncAllPropertiesFullPreserveManual, syncSingleProperty } from "@/lib/uplisting"
 import { propertySchema, type PropertyFormValues } from "@/lib/validations/property"
 
 function normalizeOptional(value?: string) {
@@ -84,6 +80,26 @@ export async function deleteProperty(id: string) {
   redirect("/dashboard/properties")
 }
 
+export async function updatePropertyUplistingId(propertyId: string, uplistingId: string) {
+  const user = await getUser()
+  if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "PROPERTY_MANAGER")) {
+    throw new Error("Unauthorized.")
+  }
+
+  const normalized = uplistingId.trim()
+
+  await prisma.property.update({
+    where: { id: propertyId },
+    data: {
+      uplisting_id: normalized || null,
+      uplisting_slug: normalized || null,
+    },
+  })
+
+  revalidatePath(`/dashboard/properties/${propertyId}`)
+  revalidatePath(`/dashboard/properties/${propertyId}/edit`)
+}
+
 export async function importPropertyFromUplisting(uplistingId: string) {
   const normalizedId = uplistingId.trim()
   if (!normalizedId) {
@@ -134,12 +150,6 @@ export async function resyncPropertyFromUplisting(propertyId: string) {
     throw new Error(result.errors[0] ?? "Failed to sync property from Uplisting.")
   }
 
-  const bookingsResult = await syncBookingsForProperty(uplistingId)
-  const bookingWarning =
-    bookingsResult.errors.length > 0
-      ? bookingsResult.errors[0] ?? "Property synced, but some bookings could not be synced."
-      : null
-
   revalidatePath(`/dashboard/properties/${propertyId}`)
-  return { ok: true as const, bookingWarning }
+  return { ok: true as const, bookingWarning: null as string | null }
 }

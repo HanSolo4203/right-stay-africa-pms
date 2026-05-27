@@ -10,6 +10,7 @@ import {
   LogOut,
   Settings,
   Users,
+  Wrench,
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -27,6 +28,7 @@ type SidebarProps = {
 const links = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Properties", href: "/dashboard/properties", icon: Building2 },
+  { label: "Maintenance", href: "/dashboard/maintenance", icon: Wrench },
   { label: "Clients", href: "/clients", icon: Users },
 ]
 

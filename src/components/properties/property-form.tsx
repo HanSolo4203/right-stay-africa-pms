@@ -2,15 +2,17 @@
 
 import { PropertyStatus, PropertyType } from "@prisma/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Minus, Plus } from "lucide-react"
+import { ExternalLink, Minus, Plus } from "lucide-react"
 import { useEffect, useState, useTransition } from "react"
 import { useForm, type Resolver } from "react-hook-form"
 import { useSearchParams } from "next/navigation"
+import { formatDistanceToNow, parseISO } from "date-fns"
 import {
   createProperty,
   deleteProperty,
   importPropertyFromUplisting,
   updateProperty,
+  updatePropertyUplistingId,
 } from "@/app/(dashboard)/dashboard/properties/actions"
 import { FileUploader } from "@/components/shared/file-uploader"
 import {
@@ -48,6 +50,8 @@ type PropertyFormProps = {
   mode: "create" | "edit"
   propertyId?: string
   initialValues?: PropertyFormValues
+  uplistingId?: string | null
+  lastSyncedAt?: string | null
 }
 
 const typeOptions = Object.values(PropertyType)
@@ -73,12 +77,14 @@ const defaultValues: PropertyFormValues = {
   welcome_pack_fee: undefined,
 }
 
-export function PropertyForm({ mode, propertyId, initialValues }: PropertyFormProps) {
+export function PropertyForm({ mode, propertyId, initialValues, uplistingId: initialUplistingId, lastSyncedAt }: PropertyFormProps) {
   const searchParams = useSearchParams()
   const [isSaving, startSavingTransition] = useTransition()
   const [isDeleting, startDeleteTransition] = useTransition()
   const [isImporting, startImportTransition] = useTransition()
-  const [uplistingId, setUplistingId] = useState("")
+  const [isSavingUplistingId, startSavingUplistingIdTransition] = useTransition()
+  const [uplistingId, setUplistingId] = useState(mode === "create" ? "" : (initialUplistingId ?? ""))
+  const [uplistingIdSaved, setUplistingIdSaved] = useState(false)
   const [uplistingError, setUplistingError] = useState<string | null>(null)
   const [uploadedPaths, setUploadedPaths] = useState<string[]>([])
   const [uploadBucket] = useState("property-files")
@@ -140,6 +146,20 @@ export function PropertyForm({ mode, propertyId, initialValues }: PropertyFormPr
     })
   }
 
+  const onSaveUplistingId = () => {
+    if (!propertyId) return
+    setUplistingError(null)
+    setUplistingIdSaved(false)
+    startSavingUplistingIdTransition(async () => {
+      try {
+        await updatePropertyUplistingId(propertyId, uplistingId)
+        setUplistingIdSaved(true)
+      } catch (error) {
+        setUplistingError(error instanceof Error ? error.message : "Failed to save Uplisting ID.")
+      }
+    })
+  }
+
   return (
     <div className="space-y-6">
       <Form {...form}>
@@ -168,7 +188,70 @@ export function PropertyForm({ mode, propertyId, initialValues }: PropertyFormPr
               </div>
               {uplistingError ? <p className="text-sm text-red-600">{uplistingError}</p> : null}
             </section>
-          ) : null}
+          ) : (
+            <section className="space-y-4 rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold text-slate-900">Uplisting connection</h2>
+                <p className="text-sm text-slate-600">
+                  Link this property to Uplisting to enable live booking sync and webhooks.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <div className="w-full md:max-w-md space-y-1">
+                  <FormLabel htmlFor="edit-uplisting-id">Uplisting Property ID</FormLabel>
+                  <Input
+                    id="edit-uplisting-id"
+                    value={uplistingId}
+                    onChange={(event) => {
+                      setUplistingId(event.target.value)
+                      setUplistingIdSaved(false)
+                    }}
+                    placeholder="e.g. 12345"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Find this in Uplisting under the property URL or Settings.{" "}
+                    <a
+                      href="https://support.uplisting.io/docs/how-to-find-the-uplisting-listing-property-id"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-0.5 text-emerald-700 underline underline-offset-2 hover:text-emerald-900"
+                    >
+                      How to find your Uplisting listing ID
+                      <ExternalLink className="size-3" />
+                    </a>
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  onClick={onSaveUplistingId}
+                  disabled={isSavingUplistingId}
+                  variant="outline"
+                  className="border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                >
+                  {isSavingUplistingId ? "Saving…" : "Save ID"}
+                </Button>
+              </div>
+              {uplistingError ? <p className="text-sm text-red-600">{uplistingError}</p> : null}
+              {uplistingIdSaved ? <p className="text-sm text-emerald-700">Uplisting ID saved.</p> : null}
+              {lastSyncedAt ? (
+                <p className="text-xs text-slate-500">
+                  Last synced:{" "}
+                  {(() => {
+                    try {
+                      return formatDistanceToNow(parseISO(lastSyncedAt), { addSuffix: true })
+                    } catch {
+                      return lastSyncedAt
+                    }
+                  })()}
+                </p>
+              ) : uplistingId.trim() ? (
+                <p className="text-xs text-amber-700">
+                  <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 font-medium">Never synced</span>
+                  {" — go to the Live Bookings tab to trigger an initial sync."}
+                </p>
+              ) : null}
+            </section>
+          )}
 
           <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
             <h2 className="text-lg font-semibold text-slate-900">Basic</h2>

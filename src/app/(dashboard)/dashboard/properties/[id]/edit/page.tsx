@@ -44,6 +44,8 @@ export default async function EditPropertyPage({ params }: EditPropertyPageProps
         <PropertyForm
           mode="edit"
           propertyId={property.id}
+          uplistingId={property.uplisting_id ?? null}
+          lastSyncedAt={property.last_synced_at?.toISOString() ?? null}
           initialValues={{
             name: property.name,
             address: property.address,

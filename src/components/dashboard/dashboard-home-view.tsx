@@ -14,6 +14,7 @@ import {
   Search,
   TrendingUp,
   Users,
+  Wrench,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -179,6 +180,12 @@ export function DashboardHomeView({ displayName }: DashboardHomeViewProps) {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null)
   const [lastUpdatedLabel, setLastUpdatedLabel] = useState("Not updated yet")
   const [propertySearch, setPropertySearch] = useState("")
+  const [maintenanceStats, setMaintenanceStats] = useState<{
+    open: number
+    inProgress: number
+    urgent: number
+    completedThisMonth: number
+  } | null>(null)
 
   const greeting = useMemo(() => getTimeOfDayGreeting(), [])
   const monthLabel = useMemo(() => format(new Date(), "MMMM yyyy"), [])
@@ -189,7 +196,10 @@ export function DashboardHomeView({ displayName }: DashboardHomeViewProps) {
     setError(null)
 
     try {
-      const res = await fetch("/api/dashboard", { cache: "no-store" })
+      const [res, maintenanceRes] = await Promise.all([
+        fetch("/api/dashboard", { cache: "no-store" }),
+        fetch("/api/maintenance/stats").catch(() => null),
+      ])
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string }
         throw new Error(body.error ?? `Failed to load dashboard (${res.status})`)
@@ -197,6 +207,15 @@ export function DashboardHomeView({ displayName }: DashboardHomeViewProps) {
       const json = (await res.json()) as DashboardApiResponse
       setData(json)
       setLastUpdatedAt(json.generatedAt)
+      if (maintenanceRes && maintenanceRes.ok) {
+        const ms = (await maintenanceRes.json()) as {
+          open: number
+          inProgress: number
+          urgent: number
+          completedThisMonth: number
+        }
+        setMaintenanceStats(ms)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load dashboard")
     } finally {
@@ -480,7 +499,7 @@ export function DashboardHomeView({ displayName }: DashboardHomeViewProps) {
           </div>
         </div>
 
-        <div className="min-w-0 lg:col-span-2">
+        <div className="min-w-0 space-y-4 lg:col-span-2">
           <div className="spike-card flex h-full flex-col overflow-hidden">
             <div className="border-b border-[var(--spike-glass-border)] px-5 py-4">
               <h3 className="spike-card-title">Next 7 days</h3>
@@ -499,6 +518,68 @@ export function DashboardHomeView({ displayName }: DashboardHomeViewProps) {
                 dateKey="checkOut"
                 moreLabel="check-outs"
               />
+            </div>
+          </div>
+
+          <div className="spike-card space-y-3 p-4">
+            <h3 className="flex items-center gap-2 text-sm font-semibold spike-heading">
+              <Wrench className="size-4 text-[var(--spike-primary)]" aria-hidden />
+              Maintenance
+            </h3>
+            {maintenanceStats ? (
+              <div className="space-y-2 text-xs spike-text-secondary">
+                {maintenanceStats.urgent > 0 ? (
+                  <div className="rounded-lg border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-[11px] text-[#ef4444]">
+                    {maintenanceStats.urgent} urgent job
+                    {maintenanceStats.urgent === 1 ? "" : "s"} need immediate attention
+                  </div>
+                ) : null}
+                {maintenanceStats.inProgress > 0 ? (
+                  <p>
+                    <span className="font-semibold tabular-nums">
+                      {maintenanceStats.inProgress}
+                    </span>{" "}
+                    job{maintenanceStats.inProgress === 1 ? "" : "s"} in progress
+                  </p>
+                ) : null}
+                {maintenanceStats.open > 0 ? (
+                  <p>
+                    <span className="font-semibold tabular-nums">
+                      {maintenanceStats.open}
+                    </span>{" "}
+                    open job{maintenanceStats.open === 1 ? "" : "s"} awaiting assignment
+                  </p>
+                ) : null}
+                <p>
+                  <span className="font-semibold tabular-nums">
+                    {maintenanceStats.completedThisMonth}
+                  </span>{" "}
+                  completed this month
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs spike-text-muted">Loading maintenance stats…</p>
+            )}
+            <div className="flex items-center justify-between pt-1 text-xs">
+              {maintenanceStats && maintenanceStats.urgent > 0 ? (
+                <Link
+                  href="/dashboard/maintenance"
+                  className="text-[11px] font-medium text-[#ef4444] hover:underline"
+                >
+                  View urgent jobs →
+                </Link>
+              ) : (
+                <p className="flex items-center gap-1 text-[11px] text-emerald-500">
+                  <span>✓</span>
+                  <span>No open maintenance jobs</span>
+                </p>
+              )}
+              <Link
+                href="/dashboard/maintenance"
+                className="text-[11px] text-[var(--spike-primary)] hover:underline"
+              >
+                View all →
+              </Link>
             </div>
           </div>
         </div>
