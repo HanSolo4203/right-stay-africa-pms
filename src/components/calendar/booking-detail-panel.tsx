@@ -8,6 +8,7 @@ import {
   formatPayout,
   bookingNights,
 } from "@/components/calendar/booking-card-shared"
+import { BookingCleaningSchedule } from "@/components/cleaning/BookingCleaningSchedule"
 import type { CalendarBooking } from "@/lib/calendar/types"
 
 export type BookingDetail = CalendarBooking & {
@@ -17,9 +18,14 @@ export type BookingDetail = CalendarBooking & {
 type BookingDetailPanelProps = {
   booking: BookingDetail
   onClose: () => void
+  canEditCleaning?: boolean
 }
 
-export function BookingDetailPanel({ booking, onClose }: BookingDetailPanelProps) {
+export function BookingDetailPanel({
+  booking,
+  onClose,
+  canEditCleaning = true,
+}: BookingDetailPanelProps) {
   const payout = formatPayout(booking.payout) ?? "—"
   const nights = bookingNights(booking)
 
@@ -47,6 +53,12 @@ export function BookingDetailPanel({ booking, onClose }: BookingDetailPanelProps
           </p>
         )}
       </BookingCardShell>
+
+      <BookingCleaningSchedule
+        bookingId={booking.id}
+        canEdit={canEditCleaning}
+        compact
+      />
     </div>
   )
 }

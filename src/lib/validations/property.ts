@@ -69,6 +69,15 @@ export const propertySchema = z.object({
     },
     z.number().min(0, "Min R0").optional()
   ),
+  mid_stay_clean_fee: z.preprocess(
+    (val) => {
+      if (val === "" || val === null || val === undefined) return undefined
+      if (typeof val === "number" && Number.isNaN(val)) return undefined
+      const n = typeof val === "number" ? val : Number(val)
+      return Number.isFinite(n) ? n : undefined
+    },
+    z.number().min(0, "Min R0").optional()
+  ),
 })
 
 export type PropertyFormValues = z.infer<typeof propertySchema>

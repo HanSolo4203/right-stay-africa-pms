@@ -50,6 +50,7 @@ import {
   buildBaseAutomaticExpenseItems,
   reconcileAutomaticExpenses,
 } from "@/lib/clients/automatic-statement-expenses"
+import { buildScheduleCleaningExpenseLines } from "@/lib/cleaning/statement-expenses"
 import {
   applyPayoutFilter,
   canIncludeBookingOnStatement,
@@ -245,15 +246,26 @@ function PropertyStatementPanel({
 
   const baseAutomaticExpenses = useMemo(() => {
     const selected = activeBookings.filter((b) => selectedIds.has(b.id))
+    const scheduleLines = buildScheduleCleaningExpenseLines(
+      statement.scheduleCleaningTasks ?? [],
+      { selectedBookingIds: selectedIds, defaultUnitPrice: statement.midStayCleanFee }
+    )
     return buildBaseAutomaticExpenseItems(
       selected.map((b) => ({
         id: b.id,
         guestName: b.guest_name,
         cleaningFee: Number(b.cleaning_fee ?? 0),
       })),
-      statement.welcomePackFeePerBooking
+      statement.welcomePackFeePerBooking,
+      scheduleLines
     )
-  }, [activeBookings, selectedIds, statement.welcomePackFeePerBooking])
+  }, [
+    activeBookings,
+    selectedIds,
+    statement.welcomePackFeePerBooking,
+    statement.scheduleCleaningTasks,
+    statement.midStayCleanFee,
+  ])
 
   useEffect(() => {
     setAutomaticExpenses((prev) => {
@@ -287,6 +299,10 @@ function PropertyStatementPanel({
   const selectedStatement = useMemo(() => {
     const selected = activeBookings.filter((b) => selectedIds.has(b.id))
     const bookingInputs = selected.map(clientBookingRowToInput)
+    const scheduleCleaningExpenses = buildScheduleCleaningExpenseLines(
+      statement.scheduleCleaningTasks ?? [],
+      { selectedBookingIds: selectedIds, defaultUnitPrice: statement.midStayCleanFee }
+    )
     const base = buildPropertyStatement({
       propertyId: statement.propertyId,
       propertyName: statement.propertyName,
@@ -295,8 +311,10 @@ function PropertyStatementPanel({
       commissionPercentProperty: statement.managementFeePercent,
       managementFeeType: statement.managementFeeType,
       welcomePackFeePerBooking: statement.welcomePackFeePerBooking,
+      midStayCleanFee: statement.midStayCleanFee,
       bookings: bookingInputs,
       manualExpenses,
+      scheduleCleaningExpenses,
       existingStatementId,
       existingStatementStatus,
       hasPdf: statement.hasPdf,
@@ -313,7 +331,11 @@ function PropertyStatementPanel({
       automaticExpenses,
       bookingOverrides,
     })
-    return applyPreviewTotalsToStatement(base, preview)
+    return {
+      ...applyPreviewTotalsToStatement(base, preview),
+      midStayCleanFee: statement.midStayCleanFee,
+      scheduleCleaningTasks: statement.scheduleCleaningTasks,
+    }
   }, [
     activeBookings,
     selectedIds,
@@ -932,6 +954,7 @@ function PropertyStatementPanel({
           automaticExpenses={automaticExpenses}
           defaultAutomaticExpenses={baseAutomaticExpenses}
           welcomePackFeePerBooking={statement.welcomePackFeePerBooking}
+          midStayCleanFee={statement.midStayCleanFee}
           selectedBookingCount={preview.lines.length}
           disabled={statement.isVirtualClient}
           onManualExpenseAdded={(expense) =>

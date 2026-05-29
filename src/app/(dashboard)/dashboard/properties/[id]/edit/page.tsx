@@ -68,6 +68,10 @@ export default async function EditPropertyPage({ params }: EditPropertyPageProps
                 : undefined,
             welcome_pack_fee:
               property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : undefined,
+            mid_stay_clean_fee:
+              property.mid_stay_clean_fee != null
+                ? Number(property.mid_stay_clean_fee)
+                : undefined,
           }}
         />
       </Suspense>

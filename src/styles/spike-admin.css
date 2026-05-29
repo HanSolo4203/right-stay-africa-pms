@@ -462,52 +462,235 @@
   }
 }
 
+/* Readable text on dark dashboard (html.dark is toggled in DashboardShell) */
+html.dark {
+  --spike-text: rgba(255, 255, 255, 0.94);
+  --spike-text-secondary: rgba(255, 255, 255, 0.62);
+  --spike-text-muted: rgba(255, 255, 255, 0.42);
+}
+
+.dark :where(
+  .text-black,
+  .text-slate-950,
+  .text-slate-900,
+  .text-slate-800,
+  .text-gray-950,
+  .text-gray-900,
+  .text-gray-800,
+  .text-zinc-950,
+  .text-zinc-900,
+  .text-zinc-800,
+  .text-neutral-950,
+  .text-neutral-900,
+  .text-neutral-800,
+  .text-stone-950,
+  .text-stone-900,
+  .text-stone-800
+) {
+  color: var(--spike-text);
+}
+
+.dark :where(
+  .text-slate-700,
+  .text-slate-600,
+  .text-gray-700,
+  .text-gray-600,
+  .text-zinc-700,
+  .text-zinc-600,
+  .text-neutral-700,
+  .text-neutral-600,
+  .text-stone-700,
+  .text-stone-600
+) {
+  color: var(--spike-text-secondary);
+}
+
+.dark :where(
+  .text-slate-500,
+  .text-slate-400,
+  .text-slate-300,
+  .text-gray-500,
+  .text-gray-400,
+  .text-gray-300,
+  .text-gray-200,
+  .text-zinc-500,
+  .text-zinc-400,
+  .text-neutral-500,
+  .text-neutral-400,
+  .text-stone-500,
+  .text-stone-400
+) {
+  color: var(--spike-text-muted);
+}
+
+/* Same-element light chips/badges keep dark text */
+.dark :where(.bg-slate-100, .bg-slate-200):where(.text-slate-800, .text-slate-700, .text-slate-600) {
+  color: #334155;
+}
+
+.dark :where(.bg-green-50, .bg-green-100):where(.text-green-900) {
+  color: #14532d;
+}
+
+.dark :where(.bg-green-50, .bg-green-100):where(.text-green-800) {
+  color: #166534;
+}
+
+.dark :where(.bg-green-50, .bg-green-100):where(.text-green-700) {
+  color: #15803d;
+}
+
+.dark :where(.bg-blue-100):where(.text-blue-700) {
+  color: #1d4ed8;
+}
+
+.dark :where(.bg-amber-100):where(.text-amber-700) {
+  color: #b45309;
+}
+
+.dark :where(.bg-violet-100):where(.text-violet-700) {
+  color: #6d28d9;
+}
+
+.dark :where(.bg-gray-100):where(.text-gray-700) {
+  color: #374151;
+}
+
+.dark :where(.hover\:text-green-dark:hover) {
+  color: var(--spike-primary);
+}
+
+.dark :where(
+  .hover\:text-slate-900:hover,
+  .hover\:text-slate-800:hover,
+  .hover\:text-slate-700:hover,
+  .hover\:text-gray-900:hover,
+  .hover\:text-gray-800:hover,
+  .hover\:text-gray-700:hover,
+  .hover\:text-gray-600:hover
+) {
+  color: var(--spike-text);
+}
+
+.dark .group:hover :where(.group-hover\:text-gray-900, .group-hover\:text-slate-900) {
+  color: var(--spike-text);
+}
+
 /* Light panels inside dark admin shell (statements, white cards, forms) */
-.spike-admin :where(.bg-white, .bg-white\/90, .bg-white\/80, .bg-white\/50) {
+.dark :where(
+  .bg-white,
+  .bg-white\/90,
+  .bg-white\/80,
+  .bg-white\/50,
+  .bg-slate-50,
+  .bg-slate-50\/70,
+  .bg-slate-50\/80,
+  .bg-slate-100,
+  .bg-slate-200,
+  .bg-green-50,
+  .bg-green-100,
+  [class*="from-emerald-50"]
+) {
   color: #1e293b;
 }
 
-.spike-admin :where(.bg-white, .bg-white\/90, .bg-white\/80, .bg-white\/50) :where(.text-muted-foreground) {
+.dark
+  :where(
+    .bg-white,
+    .bg-white\/90,
+    .bg-white\/80,
+    .bg-white\/50,
+    .bg-slate-50,
+    .bg-slate-50\/70,
+    .bg-slate-50\/80,
+    .bg-slate-100,
+    .bg-slate-200,
+    .bg-green-50,
+    .bg-green-100,
+    [class*="from-emerald-50"]
+  )
+  :where(
+    .text-black,
+    .text-slate-950,
+    .text-slate-900,
+    .text-slate-800,
+    .text-slate-700,
+    .text-gray-950,
+    .text-gray-900,
+    .text-gray-800,
+    .text-gray-700
+  ) {
+  color: #0f172a;
+}
+
+.dark
+  :where(
+    .bg-white,
+    .bg-white\/90,
+    .bg-white\/80,
+    .bg-white\/50,
+    .bg-slate-50,
+    .bg-slate-50\/70,
+    .bg-slate-50\/80,
+    .bg-slate-100,
+    .bg-slate-200,
+    .bg-green-50,
+    .bg-green-100,
+    [class*="from-emerald-50"]
+  )
+  :where(
+    .text-slate-600,
+    .text-slate-500,
+    .text-gray-600,
+    .text-gray-500,
+    .text-muted-foreground
+  ) {
+  color: #475569;
+}
+
+.dark
+  :where(
+    .bg-white,
+    .bg-white\/90,
+    .bg-white\/80,
+    .bg-white\/50,
+    .bg-slate-50,
+    .bg-slate-50\/70,
+    .bg-slate-50\/80,
+    .bg-slate-100,
+    .bg-green-50,
+    .bg-green-100,
+    [class*="from-emerald-50"]
+  )
+  :where(.text-slate-400, .text-gray-400, .text-gray-300) {
   color: #64748b;
 }
 
-.spike-admin :where(.bg-white, .bg-white\/90, .bg-white\/80, .bg-white\/50) :where([data-slot="select-trigger"]) {
+.dark :where(.bg-white, .bg-white\/90, .bg-white\/80, .bg-white\/50) :where([data-slot="select-trigger"]) {
   color: #0f172a;
   background-color: #fff;
   border-color: #e2e8f0;
 }
 
-.spike-admin
+.dark
   :where(.bg-white, .bg-white\/90, .bg-white\/80, .bg-white\/50)
   :where([data-slot="select-trigger"][data-placeholder]) {
   color: #64748b;
 }
 
-.spike-admin
+.dark
   :where(.bg-white, .bg-white\/90, .bg-white\/80, .bg-white\/50)
   :where([data-slot="select-trigger"] svg) {
   color: #64748b;
 }
 
-.spike-admin
+.dark
   :where(.bg-white, .bg-white\/90, .bg-white\/80, .bg-white\/50)
   :where(input:not([type="checkbox"]):not([type="radio"]), textarea) {
   color: #0f172a;
 }
 
-.spike-admin :where([class*="from-emerald-50"]) {
-  color: #1e293b;
-}
-
-.spike-admin :where([class*="from-emerald-50"]) :where(.text-muted-foreground, .text-slate-600, .text-slate-500) {
-  color: #475569;
-}
-
-.spike-admin :where(.bg-slate-50, .bg-slate-50\/70, .bg-slate-50\/80) {
-  color: #334155;
-}
-
-.spike-admin :where(.bg-slate-50, .bg-slate-50\/70, .bg-slate-50\/80) :where([data-slot="select-trigger"]) {
+.dark :where(.bg-slate-50, .bg-slate-50\/70, .bg-slate-50\/80) :where([data-slot="select-trigger"]) {
   color: #0f172a;
   background-color: #fff;
 }

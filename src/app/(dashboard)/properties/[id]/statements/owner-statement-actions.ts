@@ -9,6 +9,10 @@ import {
   buildAutomaticExpenseManualLines,
   mergeManualLinesWithAutomatic,
 } from "@/lib/clients/automatic-statement-expenses"
+import {
+  buildScheduleCleaningExpenseLines,
+  loadScheduleCleaningTasksForProperties,
+} from "@/lib/cleaning/statement-expenses"
 import { buildSnapshotV1 } from "@/lib/owner-statement/compute"
 import { getCompanySettingsForPdf } from "@/lib/company-settings"
 import { renderOwnerStatementPdf } from "@/lib/owner-statement/render-pdf"
@@ -78,7 +82,8 @@ function revalidateStatementPaths(propertyId: string) {
 async function buildSnapshotFromPayload(
   payload: OwnerStatementPayloadInput,
   propertyCommission: number | null,
-  welcomePackFeePerBooking: number
+  welcomePackFeePerBooking: number,
+  midStayCleanFee: number
 ): Promise<OwnerStatementSnapshotV1> {
   const bookings = await prisma.booking.findMany({
     where: {
@@ -164,13 +169,28 @@ async function buildSnapshotFromPayload(
     payload.month
   ).map((a) => bookingToSnapshotRow(a.booking, a))
 
+  const scheduleTasks =
+    (
+      await loadScheduleCleaningTasksForProperties(
+        prisma,
+        [payload.propertyId],
+        payload.month,
+        payload.year
+      )
+    ).get(payload.propertyId) ?? []
+  const scheduleLines = buildScheduleCleaningExpenseLines(scheduleTasks, {
+    selectedBookingIds: new Set(payload.bookingIds),
+    defaultUnitPrice: midStayCleanFee,
+  })
+
   const automaticLines = buildAutomaticExpenseManualLines(
     snapshotBookings.map((b) => ({
       id: b.id,
       guestName: b.guest_name,
       cleaningFee: b.cleaning_fee,
     })),
-    welcomePackFeePerBooking
+    welcomePackFeePerBooking,
+    scheduleLines
   )
 
   return buildSnapshotV1({
@@ -201,7 +221,11 @@ export async function saveOwnerStatementDraft(raw: unknown) {
 
   const property = await prisma.property.findUnique({
     where: { id: payload.propertyId },
-    select: { right_stay_commission_percent: true, welcome_pack_fee: true },
+    select: {
+      right_stay_commission_percent: true,
+      welcome_pack_fee: true,
+      mid_stay_clean_fee: true,
+    },
   })
   if (!property) throw new Error("Property not found.")
 
@@ -211,10 +235,17 @@ export async function saveOwnerStatementDraft(raw: unknown) {
       : null
   const welcomePack =
     property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
+  const midStayCleanFee =
+    property.mid_stay_clean_fee != null ? Number(property.mid_stay_clean_fee) : 0
 
   let snapshot: OwnerStatementSnapshotV1
   try {
-    snapshot = await buildSnapshotFromPayload(payload, commissionProp, welcomePack)
+    snapshot = await buildSnapshotFromPayload(
+      payload,
+      commissionProp,
+      welcomePack,
+      midStayCleanFee
+    )
   } catch (e) {
     console.error("[saveOwnerStatementDraft] buildSnapshot", e)
     throw e
@@ -289,6 +320,7 @@ export async function previewOwnerStatementPdf(raw: unknown): Promise<{
       building_name: true,
       right_stay_commission_percent: true,
       welcome_pack_fee: true,
+      mid_stay_clean_fee: true,
       owner: { select: { full_name: true } },
     },
   })
@@ -300,8 +332,15 @@ export async function previewOwnerStatementPdf(raw: unknown): Promise<{
       : null
   const welcomePack =
     property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
+  const midStayCleanFee =
+    property.mid_stay_clean_fee != null ? Number(property.mid_stay_clean_fee) : 0
 
-  const snapshot = await buildSnapshotFromPayload(payload, commissionProp, welcomePack)
+  const snapshot = await buildSnapshotFromPayload(
+    payload,
+    commissionProp,
+    welcomePack,
+    midStayCleanFee
+  )
   const companySettings = await getCompanySettingsForPdf()
 
   const buffer = await renderOwnerStatementPdf(
@@ -346,6 +385,7 @@ export async function finalizeOwnerStatement(raw: unknown) {
       building_name: true,
       right_stay_commission_percent: true,
       welcome_pack_fee: true,
+      mid_stay_clean_fee: true,
       owner: { select: { full_name: true } },
     },
   })
@@ -357,8 +397,15 @@ export async function finalizeOwnerStatement(raw: unknown) {
       : null
   const welcomePack =
     property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
+  const midStayCleanFee =
+    property.mid_stay_clean_fee != null ? Number(property.mid_stay_clean_fee) : 0
 
-  const snapshot = await buildSnapshotFromPayload(payload, commissionProp, welcomePack)
+  const snapshot = await buildSnapshotFromPayload(
+    payload,
+    commissionProp,
+    welcomePack,
+    midStayCleanFee
+  )
 
   const duplicateFinal = await prisma.statement.findFirst({
     where: {

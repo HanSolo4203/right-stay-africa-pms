@@ -4,6 +4,7 @@ import {
   buildCleaningFeeExpenseLines,
   buildWelcomePackExpenseLines,
 } from "@/lib/clients/statement-financials"
+import { isScheduleCleaningExpenseLineId } from "@/lib/cleaning/statement-expenses"
 import { statementExpenseItemsToManualLines } from "@/lib/clients/statement-expense-mappers"
 import type { StatementExpenseItem } from "@/types/statement"
 
@@ -13,14 +14,14 @@ export type BookingForAutomaticExpenses = {
   cleaningFee: number
 }
 
-const AUTOMATIC_ID_PREFIXES = ["welcome-pack:", "cleaning:"] as const
+const AUTOMATIC_ID_PREFIXES = ["welcome-pack:", "cleaning:", "schedule-clean:"] as const
 
 export function isAutomaticExpenseLineId(id: string): boolean {
   return AUTOMATIC_ID_PREFIXES.some((p) => id.startsWith(p))
 }
 
 export function bookingIdFromAutomaticExpenseId(id: string): string | null {
-  if (!isAutomaticExpenseLineId(id)) return null
+  if (!isAutomaticExpenseLineId(id) || isScheduleCleaningExpenseLineId(id)) return null
   const bookingId = id.split(":").slice(1).join(":")
   return bookingId.length > 0 ? bookingId : null
 }
@@ -92,7 +93,8 @@ export function automaticExpenseItemsFromSnapshot(
 
 export function buildBaseAutomaticExpenseItems(
   bookings: BookingForAutomaticExpenses[],
-  welcomePackFeePerBooking: number
+  welcomePackFeePerBooking: number,
+  scheduleCleaningLines: StatementExpenseItem[] = []
 ): StatementExpenseItem[] {
   const cleaningLines = buildCleaningFeeExpenseLines(
     bookings.map((b) => ({
@@ -105,7 +107,7 @@ export function buildBaseAutomaticExpenseItems(
     bookings.map((b) => ({ id: b.id, guestName: b.guestName })),
     welcomePackFeePerBooking
   )
-  return [...cleaningLines, ...welcomePackLines]
+  return [...cleaningLines, ...welcomePackLines, ...scheduleCleaningLines]
 }
 
 export function assertAutomaticExpenseLinesValid(
@@ -116,6 +118,12 @@ export function assertAutomaticExpenseLinesValid(
   for (const line of lines) {
     if (!isAutomaticExpenseLineId(line.id)) {
       throw new Error("Invalid automatic expense line.")
+    }
+    if (isScheduleCleaningExpenseLineId(line.id)) {
+      if (!line.description.trim()) {
+        throw new Error("Automatic expense description is required.")
+      }
+      continue
     }
     const bookingId = bookingIdFromAutomaticExpenseId(line.id)
     if (!bookingId || !bookingSet.has(bookingId)) {
@@ -139,23 +147,15 @@ export function filterUserManualLines(
  */
 export function buildAutomaticExpenseManualLines(
   bookings: BookingForAutomaticExpenses[],
-  welcomePackFeePerBooking: number
+  welcomePackFeePerBooking: number,
+  scheduleCleaningLines: StatementExpenseItem[] = []
 ): OwnerStatementManualLineV1[] {
-  const cleaningLines = buildCleaningFeeExpenseLines(
-    bookings.map((b) => ({
-      id: b.id,
-      guestName: b.guestName,
-      cleaningFee: b.cleaningFee,
-    }))
+  const items = buildBaseAutomaticExpenseItems(
+    bookings,
+    welcomePackFeePerBooking,
+    scheduleCleaningLines
   )
-  const welcomePackLines = buildWelcomePackExpenseLines(
-    bookings.map((b) => ({ id: b.id, guestName: b.guestName })),
-    welcomePackFeePerBooking
-  )
-  return [
-    ...statementExpenseItemsToManualLines(cleaningLines),
-    ...statementExpenseItemsToManualLines(welcomePackLines),
-  ]
+  return statementExpenseItemsToManualLines(items)
 }
 
 export function mergeManualLinesWithAutomatic(

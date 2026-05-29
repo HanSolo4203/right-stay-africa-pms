@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { BookingCleaningSchedule } from "@/components/cleaning/BookingCleaningSchedule"
 
 function formatMoney(amount: string | null | undefined) {
   if (amount == null || amount === "") return "—"
@@ -146,6 +147,8 @@ export function BookingFormModal({
               disabled={!canEdit || isPending}
             />
           </div>
+
+          <BookingCleaningSchedule bookingId={booking.id} canEdit={canEdit} />
 
           <div className="space-y-2">
             <Label htmlFor="booking-notes">Notes (editable)</Label>

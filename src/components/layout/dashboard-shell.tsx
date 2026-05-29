@@ -34,6 +34,13 @@ export function DashboardShell({ children, email, role, showSettings }: Dashboar
     }
   }, [sidebarOpen])
 
+  useEffect(() => {
+    document.documentElement.classList.add("dark")
+    return () => {
+      document.documentElement.classList.remove("dark")
+    }
+  }, [])
+
   return (
     <div className="spike-admin spike-admin-canvas min-h-screen">
       <button

@@ -3,6 +3,7 @@
 import type { BookingSource, BookingStatus } from "@prisma/client"
 import type { OwnerStatementSnapshotV1 } from "@/lib/owner-statement/types"
 import type { StatementBookingInput } from "@/lib/statement-calculator"
+import type { ScheduleCleaningTaskForStatement } from "@/lib/cleaning/statement-expenses"
 import type { StatementExpenseCategoryValue } from "@/lib/validations/statement-expense"
 
 /** Pro-rated share of a booking for one calendar month (Johannesburg). */
@@ -139,6 +140,8 @@ export type PropertyStatement = {
   additionalExpenses: StatementExpenseItem[]
   managementFeePercent: number | null
   welcomePackFeePerBooking: number
+  /** Default unit price for mid-stay and manual cleans from the cleaning schedule. */
+  midStayCleanFee: number
   managementFeeType: "percentage" | "fixed_monthly" | "fixed_per_booking"
   existingStatementId: string | null
   existingStatementStatus: "DRAFT" | "FINAL" | null
@@ -152,6 +155,8 @@ export type PropertyStatement = {
   statementSnapshot?: OwnerStatementSnapshotV1 | null
   /** Monthly amount overrides for bookings on this property/period. */
   bookingOverrides?: StatementBookingOverrideRow[]
+  /** Mid-stay and manual cleans scheduled this month (drives automatic expense lines). */
+  scheduleCleaningTasks?: ScheduleCleaningTaskForStatement[]
 }
 
 export type StatementBookingAllocationMode = "FULL_PAYMENT" | "MANUAL"

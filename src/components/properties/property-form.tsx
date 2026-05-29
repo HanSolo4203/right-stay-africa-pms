@@ -75,6 +75,7 @@ const defaultValues: PropertyFormValues = {
   booking_com_listing_url: "",
   right_stay_commission_percent: undefined,
   welcome_pack_fee: undefined,
+  mid_stay_clean_fee: undefined,
 }
 
 export function PropertyForm({ mode, propertyId, initialValues, uplistingId: initialUplistingId, lastSyncedAt }: PropertyFormProps) {
@@ -437,8 +438,8 @@ export function PropertyForm({ mode, propertyId, initialValues, uplistingId: ini
           <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
             <h2 className="text-lg font-semibold text-slate-900">Statement settings</h2>
             <p className="text-sm text-slate-600">
-              Used on client and owner statements: management fee when CSV has no fee, and welcome pack
-              charged once per included booking.
+              Used on client and owner statements: management fee when CSV has no fee, welcome pack per
+              included booking, and default charge for each mid-stay or manual clean from the schedule.
             </p>
             <div className="grid gap-4 md:grid-cols-4">
               <FormField
@@ -499,6 +500,37 @@ export function PropertyForm({ mode, propertyId, initialValues, uplistingId: ini
                     </FormControl>
                     <p className="text-xs text-muted-foreground">
                       e.g. R160 for 305 Amalfi — added as an automatic expense per booking on statements.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="mid_stay_clean_fee"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Mid-stay / manual clean fee</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        placeholder="e.g. 450"
+                        value={field.value === undefined ? "" : field.value}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === "") {
+                            field.onChange(undefined)
+                            return
+                          }
+                          const n = Number(v)
+                          field.onChange(Number.isFinite(n) ? n : undefined)
+                        }}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Default unit price for each scheduled mid-stay or manual clean on statements.
                     </p>
                     <FormMessage />
                   </FormItem>

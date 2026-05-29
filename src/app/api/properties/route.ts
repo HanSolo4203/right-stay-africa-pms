@@ -19,6 +19,7 @@ export async function GET() {
     select: {
       id: true,
       name: true,
+      unit_number: true,
       uplisting_id: true,
     },
   })

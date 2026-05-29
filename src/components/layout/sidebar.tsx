@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Settings,
+  SprayCan,
   Users,
   Wrench,
   X,
@@ -33,6 +34,7 @@ const links = [
   { label: "Calendar", href: "/calendar", icon: CalendarDays },
   { label: "Clients", href: "/clients", icon: Users },
   { label: "Maintenance", href: "/dashboard/maintenance", icon: Wrench },
+  { label: "Cleaning", href: "/cleaning", icon: SprayCan },
   { label: "Reports", href: "/reports", icon: BarChart3 },
 ]
 

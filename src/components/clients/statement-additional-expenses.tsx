@@ -58,6 +58,7 @@ type StatementAdditionalExpensesProps = {
   automaticExpenses: StatementExpenseItem[]
   defaultAutomaticExpenses: StatementExpenseItem[]
   welcomePackFeePerBooking: number
+  midStayCleanFee: number
   selectedBookingCount: number
   disabled?: boolean
   onManualExpenseAdded: (expense: StatementExpenseItem) => void
@@ -76,6 +77,7 @@ export function StatementAdditionalExpenses({
   automaticExpenses,
   defaultAutomaticExpenses,
   welcomePackFeePerBooking,
+  midStayCleanFee,
   selectedBookingCount,
   disabled,
   onManualExpenseAdded,
@@ -256,9 +258,13 @@ export function StatementAdditionalExpenses({
             {selectedBookingCount === 1 ? "" : "s"})
           </p>
           <p className="text-xs text-slate-500">
-            Cleaning fees from CSV per included stay — editable before you save or generate.
+            CSV cleaning fees per included stay, plus mid-stay and manual cleans from the
+            cleaning schedule for this month — all editable before you save or generate.
             {welcomePackFeePerBooking > 0
               ? ` Welcome pack: ${formatMoneyZar(welcomePackFeePerBooking)} per included booking (default).`
+              : ""}
+            {midStayCleanFee > 0
+              ? ` Mid-stay / manual cleans: ${formatMoneyZar(midStayCleanFee)} each (property default).`
               : ""}
           </p>
           <div className="overflow-x-auto rounded-lg border border-slate-100 bg-slate-50/50">

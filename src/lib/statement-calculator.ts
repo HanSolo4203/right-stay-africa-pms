@@ -356,6 +356,7 @@ export function buildPropertyStatement(input: {
   commissionPercentProperty: number | null
   managementFeeType?: ManagementFeeType
   welcomePackFeePerBooking?: number
+  midStayCleanFee?: number
   bookings: StatementBookingInput[]
   manualExpenses?: StatementExpenseItem[]
   existingStatementId?: string | null
@@ -363,6 +364,7 @@ export function buildPropertyStatement(input: {
   hasPdf?: boolean
   isVirtualClient?: boolean
   bookingOverrides?: StatementBookingOverrideRow[]
+  scheduleCleaningExpenses?: StatementExpenseItem[]
 }): PropertyStatement {
   const eligible = filterBookingsForStatementMonth(input.bookings, input.year, input.month, {
     includeAlreadyOnStatement: true,
@@ -389,11 +391,19 @@ export function buildPropertyStatement(input: {
     allocations.map((a) => ({ id: a.booking.id, guestName: a.booking.guest_name })),
     welcomePackUnit
   )
-  const automaticExpenses = [...cleaningExpenseLines, ...welcomePackExpenseLines]
+  const scheduleCleaningExpenseLines = input.scheduleCleaningExpenses ?? []
+  const automaticExpenses = [
+    ...cleaningExpenseLines,
+    ...welcomePackExpenseLines,
+    ...scheduleCleaningExpenseLines,
+  ]
   const manualExpenses = input.manualExpenses ?? []
   const manualExpensesTotal = sumExpenseItems(manualExpenses)
   const totalWelcomePackFees = sumExpenseItems(welcomePackExpenseLines)
-  const totalCleaningInExpenses = sumExpenseItems(cleaningExpenseLines)
+  const totalCleaningInExpenses = sumExpenseItems([
+    ...cleaningExpenseLines,
+    ...scheduleCleaningExpenseLines,
+  ])
   const additionalExpensesTotal = round2(
     manualExpensesTotal + totalWelcomePackFees + totalCleaningInExpenses
   )
@@ -507,6 +517,7 @@ export function buildPropertyStatement(input: {
     managementFeePercent: input.commissionPercentProperty,
     managementFeeType: feeType,
     welcomePackFeePerBooking: welcomePackUnit,
+    midStayCleanFee: round2(input.midStayCleanFee ?? 0),
     existingStatementId: input.existingStatementId ?? null,
     existingStatementStatus: input.existingStatementStatus ?? null,
     hasPdf: input.hasPdf ?? false,

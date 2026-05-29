@@ -50,6 +50,10 @@ import {
   filterUserManualLines,
   mergeManualLinesWithAutomatic,
 } from "@/lib/clients/automatic-statement-expenses"
+import {
+  buildScheduleCleaningExpenseLines,
+  type ScheduleCleaningTaskForStatement,
+} from "@/lib/cleaning/statement-expenses"
 import { buildSnapshotV1, coerceOwnerStatementManualLine, computeExpenses } from "@/lib/owner-statement/compute"
 import { formatMoneyZar } from "@/lib/owner-statement/format-money"
 import {
@@ -124,6 +128,7 @@ export type GenerateOwnerStatementModalProps = {
   propertyName: string
   propertyCommissionPercent: number | null
   welcomePackFeePerBooking?: number
+  midStayCleanFee?: number
   bookings: BookingListRow[]
   receipts: Array<{
     id: string
@@ -152,6 +157,7 @@ export function GenerateOwnerStatementModal({
   propertyName,
   propertyCommissionPercent,
   welcomePackFeePerBooking = 0,
+  midStayCleanFee = 0,
   bookings,
   receipts,
   initialEdit,
@@ -176,10 +182,52 @@ export function GenerateOwnerStatementModal({
   const [selectedReceiptIds, setSelectedReceiptIds] = useState<Set<string>>(new Set())
   const [draftStatementId, setDraftStatementId] = useState<string | null>(null)
   const [finalizeOpen, setFinalizeOpen] = useState(false)
+  const [scheduleCleaningTasks, setScheduleCleaningTasks] = useState<
+    ScheduleCleaningTaskForStatement[]
+  >([])
   const wasOpenRef = useRef(false)
 
   const y = Number(year)
   const m = Number(month)
+
+  useEffect(() => {
+    if (!open || !Number.isFinite(y) || !Number.isFinite(m)) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/properties/${propertyId}/cleaning?month=${m}&year=${y}`)
+        if (!res.ok || cancelled) return
+        const data = (await res.json()) as {
+          tasks?: Array<{
+            id: string
+            type: string
+            bookingId: string | null
+            scheduledDate: string
+            midstayOccurrence: number | null
+            status: string
+            booking: { guestName: string } | null
+          }>
+        }
+        const tasks: ScheduleCleaningTaskForStatement[] = (data.tasks ?? [])
+          .filter((t) => t.type === "midstay" || t.type === "manual")
+          .map((t) => ({
+            id: t.id,
+            type: t.type as "midstay" | "manual",
+            bookingId: t.bookingId,
+            guestName: t.booking?.guestName ?? null,
+            scheduledDate: String(t.scheduledDate).slice(0, 10),
+            midstayOccurrence: t.midstayOccurrence,
+            status: t.status,
+          }))
+        if (!cancelled) setScheduleCleaningTasks(tasks)
+      } catch {
+        if (!cancelled) setScheduleCleaningTasks([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, propertyId, y, m])
 
   const applySnapshot = useCallback(
     (snap: unknown, statementId: string | null) => {
@@ -322,13 +370,18 @@ export function GenerateOwnerStatementModal({
       }
     })
 
+    const scheduleLines = buildScheduleCleaningExpenseLines(scheduleCleaningTasks, {
+      selectedBookingIds: selectedIds,
+      defaultUnitPrice: midStayCleanFee,
+    })
     const automaticLines = buildAutomaticExpenseManualLines(
       bookingSnapshots.map((b) => ({
         id: b.id,
         guestName: b.guest_name,
         cleaningFee: b.cleaning_fee,
       })),
-      welcomePackFeePerBooking
+      welcomePackFeePerBooking,
+      scheduleLines
     )
 
     return buildSnapshotV1({
@@ -346,6 +399,9 @@ export function GenerateOwnerStatementModal({
     y,
     propertyCommissionPercent,
     welcomePackFeePerBooking,
+    scheduleCleaningTasks,
+    midStayCleanFee,
+    selectedIds,
     overrideNum,
     overrideValid,
     manualLines,
@@ -649,10 +705,15 @@ export function GenerateOwnerStatementModal({
                 </div>
               </div>
 
-              {welcomePackFeePerBooking > 0 ? (
+              {welcomePackFeePerBooking > 0 || midStayCleanFee > 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Welcome pack: {formatMoneyZar(welcomePackFeePerBooking)} per selected booking (from property
-                  settings), added automatically under additional expenses.
+                  {welcomePackFeePerBooking > 0
+                    ? `Welcome pack: ${formatMoneyZar(welcomePackFeePerBooking)} per selected booking. `
+                    : ""}
+                  {midStayCleanFee > 0
+                    ? `Mid-stay / manual cleans: ${formatMoneyZar(midStayCleanFee)} each (property default). `
+                    : ""}
+                  Added automatically under additional expenses.
                 </p>
               ) : null}
 

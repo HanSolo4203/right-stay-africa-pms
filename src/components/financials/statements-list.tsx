@@ -58,6 +58,7 @@ type StatementsListProps = {
   propertyName: string
   propertyCommissionPercent: number | null
   welcomePackFeePerBooking: number
+  midStayCleanFee: number
   statements: StatementItem[]
   userRole: "SUPER_ADMIN" | "PROPERTY_MANAGER" | "OWNER" | null
   bookings: BookingListRow[]
@@ -148,6 +149,7 @@ export function StatementsList({
   propertyName,
   propertyCommissionPercent,
   welcomePackFeePerBooking,
+  midStayCleanFee,
   statements,
   userRole,
   bookings,
@@ -616,6 +618,7 @@ export function StatementsList({
           propertyName={propertyName}
           propertyCommissionPercent={propertyCommissionPercent}
           welcomePackFeePerBooking={welcomePackFeePerBooking}
+          midStayCleanFee={midStayCleanFee}
           bookings={bookings}
           receipts={receipts}
           open={generateOpen}

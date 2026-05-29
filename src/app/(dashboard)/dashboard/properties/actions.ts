@@ -42,6 +42,10 @@ function normalizePayload(formData: PropertyFormValues) {
       formData.welcome_pack_fee != null && Number.isFinite(formData.welcome_pack_fee)
         ? formData.welcome_pack_fee
         : null,
+    mid_stay_clean_fee:
+      formData.mid_stay_clean_fee != null && Number.isFinite(formData.mid_stay_clean_fee)
+        ? formData.mid_stay_clean_fee
+        : null,
   }
 }
 

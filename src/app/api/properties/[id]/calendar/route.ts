@@ -33,6 +33,31 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const monthStart = startOfMonth(new Date(year, month - 1, 1))
   const monthEnd = endOfMonth(new Date(year, month - 1, 1))
 
+  const cleaningRows = await prisma.cleaningTask.findMany({
+    where: {
+      property_id: propertyId,
+      scheduled_for: { gte: monthStart, lte: monthEnd },
+    },
+    select: {
+      id: true,
+      booking_id: true,
+      type: true,
+      scheduled_for: true,
+      status: true,
+      booking: { select: { guest_name: true } },
+    },
+    orderBy: { scheduled_for: "asc" },
+  })
+
+  const cleaningTasks = cleaningRows.map((row) => ({
+    id: row.id,
+    bookingId: row.booking_id,
+    type: row.type as "checkout" | "midstay",
+    scheduledDate: row.scheduled_for.toISOString(),
+    status: row.status as "scheduled" | "completed" | "skipped",
+    guestName: row.booking?.guest_name ?? null,
+  }))
+
   const [bookings, cancelledBookings] = await Promise.all([
     prisma.booking.findMany({
       where: {
@@ -58,6 +83,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   return NextResponse.json({
     bookings: [...bookings, ...cancelledBookings].map(serializeCalendarBooking),
+    cleaningTasks,
     month,
     year,
     daysInMonth: monthEnd.getDate(),

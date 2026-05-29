@@ -18,6 +18,8 @@ import {
   detectGaps,
   gapKey,
 } from "@/lib/calendar-utils"
+import { PropertyCleaningMonthSummary } from "@/components/cleaning/PropertyCleaningMonthSummary"
+import type { CalendarCleaningMarker } from "@/lib/cleaning/calendar-markers"
 import type { CalendarBooking } from "@/lib/calendar/types"
 
 export type { CalendarBooking } from "@/lib/calendar/types"
@@ -33,6 +35,7 @@ export function PropertyCalendar({ propertyId, propertyName }: PropertyCalendarP
   const [month, setMonth] = useState(new Date().getMonth() + 1)
   const [year, setYear] = useState(new Date().getFullYear())
   const [bookings, setBookings] = useState<CalendarBooking[]>([])
+  const [cleaningTasks, setCleaningTasks] = useState<CalendarCleaningMarker[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedBooking, setSelectedBooking] = useState<CalendarBooking | null>(null)
   const [hoveredBooking, setHoveredBooking] = useState<string | null>(null)
@@ -54,6 +57,7 @@ export function PropertyCalendar({ propertyId, propertyName }: PropertyCalendarP
       }
       const data = await res.json()
       setBookings(data.bookings ?? [])
+      setCleaningTasks(data.cleaningTasks ?? [])
     } finally {
       setIsLoading(false)
     }
@@ -83,7 +87,9 @@ export function PropertyCalendar({ propertyId, propertyName }: PropertyCalendarP
             onToday={goToToday}
           />
 
-          <CalendarLegend />
+          <CalendarLegend showCleaningMarkers />
+
+          <PropertyCleaningMonthSummary propertyId={propertyId} month={month} year={year} />
 
           {isLoading ? (
             <CalendarSkeleton />
@@ -121,6 +127,7 @@ export function PropertyCalendar({ propertyId, propertyName }: PropertyCalendarP
                             key={dayIdx}
                             day={day}
                             bookings={bookings}
+                            cleaningTasks={cleaningTasks}
                             today={today}
                             month={month}
                             gapLength={day ? gapMap.get(gapKey(day)) : undefined}

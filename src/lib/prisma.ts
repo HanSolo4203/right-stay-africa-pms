@@ -8,7 +8,7 @@ const connectionString = process.env.DATABASE_URL!
 const adapter = new PrismaPg({ connectionString })
 
 /** Bump when Client/Property schema changes so dev HMR does not reuse a stale PrismaClient. */
-const PRISMA_SCHEMA_VERSION = 5
+const PRISMA_SCHEMA_VERSION = 9
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -22,11 +22,15 @@ function isPrismaClientComplete(client: PrismaClient): boolean {
     client?: { findMany: unknown }
     statementExpense?: { findMany: unknown }
     companySettings?: { findFirst: unknown }
+    propertyCleaningMonthRecord?: { upsert: unknown }
+    cleaningTask?: { findMany: unknown }
   }
   return (
     typeof c.client?.findMany === "function" &&
     typeof c.statementExpense?.findMany === "function" &&
-    typeof c.companySettings?.findFirst === "function"
+    typeof c.companySettings?.findFirst === "function" &&
+    typeof c.propertyCleaningMonthRecord?.upsert === "function" &&
+    typeof c.cleaningTask?.findMany === "function"
   )
 }
 
@@ -47,5 +51,10 @@ function getPrisma(): PrismaClient {
   return client
 }
 
-export const prisma = getPrisma()
+/** Lazy singleton so a dev server started before `prisma generate` picks up new models on reload. */
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getPrisma(), prop, receiver)
+  },
+})
 

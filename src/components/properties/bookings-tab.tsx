@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { BookingSource, BookingStatus } from "@prisma/client"
 import { Plus } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -8,6 +8,9 @@ import { CreateBookingModal } from "@/components/bookings/create-booking-modal"
 import { BookingFormModal } from "@/components/bookings/booking-form-modal"
 import { BookingList, type BookingListRow, formatChannelLabel } from "@/components/bookings/booking-list"
 import { Button } from "@/components/ui/button"
+import { PropertyCleaningMonthSummary } from "@/components/cleaning/PropertyCleaningMonthSummary"
+import type { CalendarCleaningMarker } from "@/lib/cleaning/calendar-markers"
+import { cleansForDay } from "@/lib/cleaning/calendar-markers"
 import { Card, CardContent } from "@/components/ui/card"
 
 type BookingsTabProps = {
@@ -142,8 +145,47 @@ export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps
   const [selectedBooking, setSelectedBooking] = useState<BookingListRow | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [cleaningTasks, setCleaningTasks] = useState<CalendarCleaningMarker[]>([])
 
   const canEditBookings = userRole === "SUPER_ADMIN" || userRole === "PROPERTY_MANAGER"
+
+  const loadCleaning = useCallback(async () => {
+    const month = monthDate.getMonth() + 1
+    const year = monthDate.getFullYear()
+    try {
+      const res = await fetch(`/api/properties/${propertyId}/cleaning?month=${month}&year=${year}`)
+      if (!res.ok) {
+        setCleaningTasks([])
+        return
+      }
+      const data = (await res.json()) as {
+        tasks?: Array<{
+          id: string
+          bookingId: string
+          type: "checkout" | "midstay"
+          scheduledDate: string
+          status: "scheduled" | "completed" | "skipped"
+          booking: { guestName: string | null }
+        }>
+      }
+      setCleaningTasks(
+        (data.tasks ?? []).map((t) => ({
+          id: t.id,
+          bookingId: t.bookingId,
+          type: t.type,
+          scheduledDate: String(t.scheduledDate),
+          status: t.status,
+          guestName: t.booking.guestName,
+        })),
+      )
+    } catch {
+      setCleaningTasks([])
+    }
+  }, [propertyId, monthDate])
+
+  useEffect(() => {
+    void loadCleaning()
+  }, [loadCleaning])
 
   const monthLabel = new Intl.DateTimeFormat("en-ZA", {
     month: "long",
@@ -246,6 +288,12 @@ export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps
             </div>
           </div>
 
+          <PropertyCleaningMonthSummary
+            propertyId={propertyId}
+            month={monthDate.getMonth() + 1}
+            year={monthDate.getFullYear()}
+          />
+
           <div className="grid gap-3 rounded-lg border border-slate-100 bg-slate-50/80 p-3 sm:grid-cols-2">
             <div>
               <p className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">Gross revenue</p>
@@ -281,14 +329,28 @@ export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps
                   <div className="grid grid-cols-7 gap-px">
                     {weekDays.map((date) => {
                       const isCurrentMonth = date.getMonth() === monthDate.getMonth()
+                      const dayCleans = cleansForDay(cleaningTasks, date)
                       return (
                         <div
                           key={toLocalDateKey(date)}
-                          className={`min-h-9 bg-white px-1 py-1.5 text-center text-[11px] font-medium tabular-nums ${
+                          className={`relative min-h-9 bg-white px-1 py-1.5 text-center text-[11px] font-medium tabular-nums ${
                             isCurrentMonth ? "text-slate-800" : "text-slate-400"
                           }`}
                         >
                           {date.getDate()}
+                          {dayCleans.length > 0 ? (
+                            <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-0.5 pb-0.5">
+                              {dayCleans.slice(0, 2).map((c) => (
+                                <span
+                                  key={c.id}
+                                  className={`h-1 w-1 rounded-full ${
+                                    c.type === "checkout" ? "bg-blue-500" : "bg-amber-500"
+                                  }`}
+                                  title={`${c.type} clean`}
+                                />
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                       )
                     })}
@@ -345,6 +407,11 @@ export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps
               <span className="h-2 w-4 rounded-sm border border-violet-300/70 bg-violet-100" />
               Other
             </span>
+            <span className="text-slate-400">·</span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+              Clean
+            </span>
           </div>
         </CardContent>
       </Card>
@@ -371,7 +438,10 @@ export function BookingsTab({ propertyId, userRole, bookings }: BookingsTabProps
         open={modalOpen}
         onOpenChange={(open) => {
           setModalOpen(open)
-          if (!open) setSelectedBooking(null)
+          if (!open) {
+            setSelectedBooking(null)
+            void loadCleaning()
+          }
         }}
         propertyId={propertyId}
         booking={selectedBooking}

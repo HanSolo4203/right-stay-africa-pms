@@ -100,6 +100,7 @@ model Property {
   right_stay_commission_percent Decimal? @db.Decimal(5, 2)
   management_fee_type           String   @default("percentage")
   welcome_pack_fee              Decimal? @db.Decimal(10, 2)
+  mid_stay_clean_fee            Decimal? @db.Decimal(10, 2)
   client_id       String?
   created_at      DateTime       @default(now())
   updated_at      DateTime       @updatedAt
@@ -115,6 +116,10 @@ model Property {
   statement_expenses StatementExpense[]
   statement_booking_overrides StatementBookingOverride[]
   maintenance_jobs       MaintenanceJob[]
+
+  // Cleaning
+  cleaning_tasks            CleaningTask[]
+  cleaning_month_records    PropertyCleaningMonthRecord[]
 
   @@index([client_id])
 }
@@ -273,6 +278,10 @@ model Booking {
   statement_overrides  StatementBookingOverride[]
   created_at  DateTime      @default(now())
   updated_at  DateTime      @updatedAt
+
+  // Cleaning
+  cleaning_tasks             CleaningTask[]
+  cleaning_schedule_locked   Boolean        @default(false)
 
   @@unique([confirmation_code])
   @@index([owner_statement_id])
@@ -476,4 +485,50 @@ model CompanySettings {
   accountType         String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+}
+
+model CleaningTask {
+  id                 String   @id @default(cuid())
+  booking_id         String?
+  booking            Booking? @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+  property_id        String
+  property           Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  /// "checkout" | "midstay" | "manual"
+  type               String
+  scheduled_for      DateTime
+  /// null for checkout, 1/2/3... for mid-stay occurrence
+  midstay_occurrence Int?
+  /// "scheduled" | "completed" | "skipped"
+  status             String   @default("scheduled")
+  completed_at       DateTime?
+  notes              String?
+  cleaner_name       String?
+  /// User-edited dates or manually added tasks — protected from bulk regenerate
+  is_manual_override Boolean  @default(false)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  @@unique([booking_id, type, midstay_occurrence])
+  @@index([property_id])
+  @@index([scheduled_for])
+  @@index([status])
+  @@index([property_id, scheduled_for])
+}
+
+/// Monthly snapshot of scheduled cleans per property (updated when schedule changes)
+model PropertyCleaningMonthRecord {
+  id              String   @id @default(cuid())
+  property_id     String
+  property        Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  month           Int
+  year            Int
+  task_count      Int      @default(0)
+  completed_count Int      @default(0)
+  skipped_count   Int      @default(0)
+  snapshot        Json     @default("[]")
+  updated_at      DateTime @updatedAt
+  created_at      DateTime @default(now())
+
+  @@unique([property_id, month, year])
+  @@index([property_id, year, month])
 }

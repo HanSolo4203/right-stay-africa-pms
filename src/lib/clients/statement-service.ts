@@ -30,6 +30,11 @@ import {
   normalizeStatementExpenseItem,
   reconcileAutomaticExpenses,
 } from "@/lib/clients/automatic-statement-expenses"
+import {
+  buildScheduleCleaningExpenseLines,
+  loadScheduleCleaningTasksForProperties,
+  type ScheduleCleaningTaskForStatement,
+} from "@/lib/cleaning/statement-expenses"
 import { statementExpenseItemsToManualLines } from "@/lib/clients/statement-expense-mappers"
 import { serializeStatementBookingRow } from "@/lib/clients/statement-booking-ui"
 import { serializeStatementBookingOverride } from "@/lib/clients/statement-booking-overrides"
@@ -58,6 +63,7 @@ type StatementExpenseRow = Awaited<ReturnType<typeof loadStatementExpenses>>[num
 type BatchedStatementAuxiliary = {
   expensesByPropertyClient: Map<string, StatementExpenseRow[]>
   overridesByProperty: Map<string, StatementBookingOverrideRow[]>
+  scheduleCleaningByProperty: Map<string, ScheduleCleaningTaskForStatement[]>
 }
 
 function auxiliaryKey(clientId: string, propertyId: string) {
@@ -72,16 +78,17 @@ async function loadBatchedStatementAuxiliary(
   const propertyIds = [...new Set(entries.map((e) => e.propertyId))]
   const expensesByPropertyClient = new Map<string, StatementExpenseRow[]>()
   const overridesByProperty = new Map<string, StatementBookingOverrideRow[]>()
+  const scheduleCleaningByProperty = new Map<string, ScheduleCleaningTaskForStatement[]>()
 
   if (propertyIds.length === 0) {
-    return { expensesByPropertyClient, overridesByProperty }
+    return { expensesByPropertyClient, overridesByProperty, scheduleCleaningByProperty }
   }
 
   const realClientIds = [
     ...new Set(entries.filter((e) => !e.isVirtual).map((e) => e.clientId)),
   ]
 
-  const [expenseRows, overrideRows] = await Promise.all([
+  const [expenseRows, overrideRows, scheduleCleaningByPropertyLoaded] = await Promise.all([
     realClientIds.length > 0
       ? prisma.statementExpense.findMany({
           where: {
@@ -96,6 +103,7 @@ async function loadBatchedStatementAuxiliary(
     prisma.statementBookingOverride.findMany({
       where: { month, year, property_id: { in: propertyIds } },
     }),
+    loadScheduleCleaningTasksForProperties(prisma, propertyIds, month, year),
   ])
 
   for (const row of expenseRows) {
@@ -125,7 +133,11 @@ async function loadBatchedStatementAuxiliary(
     overridesByProperty.set(row.property_id, list)
   }
 
-  return { expensesByPropertyClient, overridesByProperty }
+  for (const [propertyId, tasks] of scheduleCleaningByPropertyLoaded) {
+    scheduleCleaningByProperty.set(propertyId, tasks)
+  }
+
+  return { expensesByPropertyClient, overridesByProperty, scheduleCleaningByProperty }
 }
 
 function propertyStatementSelect(month: number, year: number) {
@@ -135,6 +147,7 @@ function propertyStatementSelect(month: number, year: number) {
     right_stay_commission_percent: true,
     management_fee_type: true,
     welcome_pack_fee: true,
+    mid_stay_clean_fee: true,
     bookings: {
       where: statementPeriodBookingWhere(month, year),
       select: bookingSelect,
@@ -333,6 +346,7 @@ async function propertyToStatement(
     right_stay_commission_percent: { toString: () => string } | null
     management_fee_type: string
     welcome_pack_fee: { toString: () => string } | null
+    mid_stay_clean_fee: { toString: () => string } | null
     bookings: StatementBookingInput[]
     statements: Array<{
       id: string
@@ -358,6 +372,8 @@ async function propertyToStatement(
       : null
   const welcomePack =
     p.welcome_pack_fee != null ? Number(p.welcome_pack_fee) : 0
+  const midStayCleanFee =
+    p.mid_stay_clean_fee != null ? Number(p.mid_stay_clean_fee) : 0
 
   let expenses: StatementExpenseRow[]
   let bookingOverrides: StatementBookingOverrideRow[]
@@ -381,6 +397,14 @@ async function propertyToStatement(
   const bookingIdsForEditor =
     snap != null && snap.bookingIds.length > 0 ? snap.bookingIds : autoIds
   const editorBookings = p.bookings.filter((b) => bookingIdsForEditor.includes(b.id))
+  const scheduleCleaningTasks =
+    options?.auxiliary?.scheduleCleaningByProperty.get(p.id) ??
+    (await loadScheduleCleaningTasksForProperties(prisma, [p.id], month, year)).get(p.id) ??
+    []
+  const scheduleCleaningExpenses = buildScheduleCleaningExpenseLines(scheduleCleaningTasks, {
+    selectedBookingIds: new Set(editorBookings.map((b) => b.id)),
+    defaultUnitPrice: midStayCleanFee,
+  })
 
   const built = buildPropertyStatement({
     propertyId: p.id,
@@ -390,8 +414,10 @@ async function propertyToStatement(
     commissionPercentProperty: commission,
     managementFeeType: parseManagementFeeType(p.management_fee_type),
     welcomePackFeePerBooking: welcomePack,
+    midStayCleanFee,
     bookings: editorBookings,
     manualExpenses: expenseItems(expenses),
+    scheduleCleaningExpenses,
     existingStatementId: existing?.id ?? null,
     existingStatementStatus: existing?.status ?? null,
     hasPdf: Boolean(existing?.file_url),
@@ -417,6 +443,8 @@ async function propertyToStatement(
   return {
     ...withTotals,
     automaticExpenses,
+    scheduleCleaningTasks,
+    midStayCleanFee,
     existingStatementFileUrl: existing?.file_url ?? null,
     existingStatementFileName: existing?.file_name ?? null,
     bookings: options?.omitBookings
@@ -447,6 +475,7 @@ export async function rebuildPropertyStatementForPeriod(
       right_stay_commission_percent: true,
       management_fee_type: true,
       welcome_pack_fee: true,
+      mid_stay_clean_fee: true,
       bookings: {
         where: statementPeriodBookingWhere(month, year),
         select: bookingSelect,
@@ -523,6 +552,7 @@ async function buildSnapshotForProperty(
       right_stay_commission_percent: true,
       management_fee_type: true,
       welcome_pack_fee: true,
+      mid_stay_clean_fee: true,
       client_id: true,
       owner: { select: { full_name: true } },
     },
@@ -535,6 +565,8 @@ async function buildSnapshotForProperty(
       : null
   const welcomePack =
     property.welcome_pack_fee != null ? Number(property.welcome_pack_fee) : 0
+  const midStayCleanFee =
+    property.mid_stay_clean_fee != null ? Number(property.mid_stay_clean_fee) : 0
 
   const resolvedClientId =
     clientId.startsWith("property:") && property.client_id
@@ -571,13 +603,21 @@ async function buildSnapshotForProperty(
     }
   }
 
+  const scheduleCleaningTasks = (
+    await loadScheduleCleaningTasksForProperties(prisma, [propertyId], month, year)
+  ).get(propertyId) ?? []
+  const scheduleCleaningExpenses = buildScheduleCleaningExpenseLines(scheduleCleaningTasks, {
+    selectedBookingIds: new Set(bookingIds),
+    defaultUnitPrice: midStayCleanFee,
+  })
   const baseAutomatic = buildBaseAutomaticExpenseItems(
     bookings.map((b) => ({
       id: b.id,
       guestName: b.guest_name,
       cleaningFee: Number(b.cleaning_fee ?? 0),
     })),
-    welcomePack
+    welcomePack,
+    scheduleCleaningExpenses
   )
   const automaticItems =
     options?.automaticExpenses != null
