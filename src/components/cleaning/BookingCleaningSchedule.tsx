@@ -5,7 +5,6 @@ import { format } from "date-fns"
 import { Loader2, Plus, RefreshCw, SprayCan, Trash2 } from "lucide-react"
 import type { CleaningStatus, CleaningType } from "@/lib/cleaning/serialize"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import { toast } from "@/components/ui/toast"
 
 type ScheduleTask = {

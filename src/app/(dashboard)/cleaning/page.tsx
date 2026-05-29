@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Calendar,
   CalendarDays,
@@ -98,15 +98,7 @@ export default function CleaningPage() {
     [weekStart],
   )
 
-  useEffect(() => {
-    void fetchTasks()
-  }, [dateFrom, dateTo])
-
-  useEffect(() => {
-    void fetchStats()
-  }, [tasks])
-
-  async function fetchTasks() {
+  const fetchTasks = useCallback(async () => {
     setIsLoading(true)
     try {
       const res = await fetch(`/api/cleaning?from=${dateFrom}&to=${dateTo}`)
@@ -123,7 +115,15 @@ export default function CleaningPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [dateFrom, dateTo])
+
+  useEffect(() => {
+    void fetchTasks()
+  }, [fetchTasks])
+
+  useEffect(() => {
+    void fetchStats()
+  }, [tasks])
 
   async function fetchStats() {
     try {

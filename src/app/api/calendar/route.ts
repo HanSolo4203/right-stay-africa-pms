@@ -68,6 +68,13 @@ export async function GET(request: NextRequest) {
     month,
     year,
     daysInMonth,
-    properties: rows.map(({ hasOccupancy: _h, ...rest }) => rest),
+    properties: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      unitNumber: row.unitNumber,
+      bookings: row.bookings,
+      bookedNights: row.bookedNights,
+      occupancyPct: row.occupancyPct,
+    })),
   })
 }

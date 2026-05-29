@@ -39,6 +39,7 @@ export type CleaningTaskRowTask = {
     platform: string | null
   } | null
   notes?: string | null
+  completedAt?: string | Date | null
 }
 
 type CleaningTaskRowProps = {

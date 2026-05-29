@@ -141,10 +141,10 @@ export function CleaningTaskDrawer({
                   )}
 
                   {/* Completed timestamp */}
-                  {selectedTask.status === "completed" && (selectedTask as any).completedAt && (
+                  {selectedTask.status === "completed" && selectedTask.completedAt && (
                     <p className="text-xs text-gray-400">
                       Completed{" "}
-                      {format(new Date((selectedTask as any).completedAt), "EEE d MMM yyyy, HH:mm")}
+                      {format(new Date(selectedTask.completedAt), "EEE d MMM yyyy, HH:mm")}
                     </p>
                   )}
 
