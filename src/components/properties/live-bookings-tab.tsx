@@ -11,7 +11,7 @@ import {
   parseISO,
   startOfMonth,
 } from "date-fns"
-import { RefreshCw } from "lucide-react"
+import { Loader2, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -167,6 +167,33 @@ export function LiveBookingsTab({
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [webhookModalOpen, setWebhookModalOpen] = useState(false)
+  const [registerResult, setRegisterResult] = useState<{
+    success: boolean
+    message: string
+  } | null>(null)
+  const [isRegistering, setIsRegistering] = useState(false)
+
+  async function handleRegister() {
+    setIsRegistering(true)
+    setRegisterResult(null)
+    try {
+      const res = await fetch("/api/uplisting/register-webhook", {
+        method: "POST",
+      })
+      const data = (await res.json()) as { message?: string; error?: string }
+      setRegisterResult({
+        success: res.ok,
+        message: data.message ?? data.error ?? "Unknown result",
+      })
+    } catch {
+      setRegisterResult({
+        success: false,
+        message: "Network error",
+      })
+    } finally {
+      setIsRegistering(false)
+    }
+  }
 
   const loadBookings = useCallback(async () => {
     const res = await fetch(`/api/bookings?propertyId=${encodeURIComponent(propertyId)}`)
@@ -351,7 +378,32 @@ export function LiveBookingsTab({
                         </p>
                       </div>
                     </div>
-                    <DialogFooter className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-between">
+                    <DialogFooter className="mt-4 flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleRegister()}
+                        disabled={isRegistering}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 py-2.5 font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {isRegistering ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Registering...
+                          </>
+                        ) : (
+                          "🔗 Register webhook with Uplisting"
+                        )}
+                      </button>
+                      {registerResult ? (
+                        <p
+                          className={`mt-2 text-center text-sm ${
+                            registerResult.success ? "text-green-400" : "text-red-400"
+                          }`}
+                        >
+                          {registerResult.success ? "✓" : "✗"} {registerResult.message}
+                        </p>
+                      ) : null}
+                      <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
                       <Button
                         type="button"
                         variant="outline"
@@ -376,6 +428,7 @@ export function LiveBookingsTab({
                       <Button type="button" variant="default" onClick={() => setWebhookModalOpen(false)}>
                         Close
                       </Button>
+                      </div>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
