@@ -57,6 +57,8 @@ type LiveBookingRow = {
 type LiveBookingsTabProps = {
   propertyId: string
   uplistingLinked: boolean
+  webhookAppUrl: string
+  showWebhookAppUrlWarning: boolean
 }
 
 function formatMoney(amount: number | null, currency: string) {
@@ -153,7 +155,12 @@ function computeMonthlyStats(bookings: LiveBookingRow[]) {
   }
 }
 
-export function LiveBookingsTab({ propertyId, uplistingLinked }: LiveBookingsTabProps) {
+export function LiveBookingsTab({
+  propertyId,
+  uplistingLinked,
+  webhookAppUrl,
+  showWebhookAppUrlWarning,
+}: LiveBookingsTabProps) {
   const [bookings, setBookings] = useState<LiveBookingRow[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -234,10 +241,7 @@ export function LiveBookingsTab({ propertyId, uplistingLinked }: LiveBookingsTab
 
   const stats = useMemo(() => computeMonthlyStats(bookings), [bookings])
 
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    (typeof window !== "undefined" ? window.location.origin : "")
-  const webhookUrl = `${appUrl || ""}/api/webhooks/uplisting`
+  const webhookUrl = `${webhookAppUrl}/api/webhooks/uplisting`
   const showRegisterWebhook = uplistingLinked && !lastSyncedAt
 
   return (
@@ -304,6 +308,12 @@ export function LiveBookingsTab({ propertyId, uplistingLinked }: LiveBookingsTab
                               Copy
                             </Button>
                           </div>
+                          {showWebhookAppUrlWarning ? (
+                            <p className="mt-2 text-xs text-amber-700">
+                              ⚠️ Set NEXT_PUBLIC_APP_URL in your Vercel environment variables to
+                              get the correct URL
+                            </p>
+                          ) : null}
                         </div>
                       </div>
 
@@ -314,8 +324,7 @@ export function LiveBookingsTab({ propertyId, uplistingLinked }: LiveBookingsTab
                           <li>
                             Select events to subscribe to:{" "}
                             <span className="font-mono text-xs">
-                              booking.created / reservation.created, booking.modified /
-                              reservation.modified, booking.cancelled / reservation.cancelled
+                              booking_created, booking_updated, booking_removed
                             </span>
                           </li>
                         </ul>

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import { PropertyTabs } from "@/components/properties/property-tabs"
+import { getAppUrl, isPublicAppUrlConfigured } from "@/lib/app-url"
 import { getUser } from "@/lib/auth/get-user"
 import { prisma } from "@/lib/prisma"
 import { parseEmergencyContacts, type PropertyTab } from "./property-detail-shared"
@@ -240,6 +241,8 @@ export async function PropertyDetailTabs({
         owner_statement_id: booking.owner_statement_id,
       }))}
       uplistingLinked={Boolean(property.uplisting_id?.trim())}
+      webhookAppUrl={getAppUrl()}
+      showWebhookAppUrlWarning={!isPublicAppUrlConfigured()}
     />
   )
 }

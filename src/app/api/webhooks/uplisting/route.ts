@@ -18,7 +18,7 @@ export const runtime = "nodejs"
  *
  * 3. In Uplisting (Connect > Webhook), register:
  *    Endpoint: https://right-stay-africa-pms.vercel.app/api/webhooks/uplisting
- *    Events: booking.created, booking.modified, booking.cancelled
+ *    Events: booking_created, booking_updated, booking_removed
  *
  * 4. Run initial sync for each property via the "Sync now" button
  *    in the Live Bookings tab

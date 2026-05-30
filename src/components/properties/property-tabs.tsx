@@ -96,6 +96,8 @@ type PropertyTabsProps = {
   }
   bookings: BookingListRow[]
   uplistingLinked: boolean
+  webhookAppUrl: string
+  showWebhookAppUrlWarning: boolean
 }
 
 export function isValidPropertyTab(tab: string | undefined): tab is TabValue {
@@ -126,6 +128,8 @@ function PropertyTabsInner({
   overview,
   bookings,
   uplistingLinked,
+  webhookAppUrl,
+  showWebhookAppUrlWarning,
 }: PropertyTabsProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -280,7 +284,12 @@ function PropertyTabsInner({
               <PropertyCalendar propertyId={propertyId} propertyName={propertyName} />
             ) : null
           ) : tabItem.value === "live-bookings" ? (
-            <LiveBookingsTab propertyId={propertyId} uplistingLinked={uplistingLinked} />
+            <LiveBookingsTab
+              propertyId={propertyId}
+              uplistingLinked={uplistingLinked}
+              webhookAppUrl={webhookAppUrl}
+              showWebhookAppUrlWarning={showWebhookAppUrlWarning}
+            />
           ) : (
             <Card className="bg-white">
               <CardContent className="p-6 text-slate-500">Coming soon</CardContent>
