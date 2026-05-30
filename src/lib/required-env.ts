@@ -48,6 +48,9 @@ export function describeDatabaseError(message: string): string | null {
   ) {
     return "Cannot reach Postgres. Resume the Supabase project if paused, and use the pooled connection string (port 6543, ?pgbouncer=true) for DATABASE_URL on Vercel."
   }
+  if (lower.includes("max_client_conn")) {
+    return "Database connection pool is full. Use the Supabase pooled DATABASE_URL (port 6543) and avoid opening many parallel queries; retry in a moment."
+  }
   if (
     lower.includes("does not exist") ||
     message.includes("P2021") ||

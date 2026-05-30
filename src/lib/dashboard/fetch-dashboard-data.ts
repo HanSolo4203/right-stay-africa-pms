@@ -42,26 +42,32 @@ export async function fetchDashboardData(today: Date = new Date()): Promise<Dash
     return { month: d.getMonth() + 1, year: d.getFullYear(), label: format(d, "MMM") }
   })
 
-  const [
-    properties,
-    currentMonthClients,
-    lastMonthClients,
-    ...trendClientsByPeriod
-  ] = await Promise.all([
-    prisma.property.findMany({
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        unit_number: true,
-        client: { select: { name: true } },
-        owner: { select: { full_name: true } },
-      },
-    }),
-    loadClientsWithStatements(month, year),
-    loadClientsWithStatements(lastMonth, lastYear),
-    ...trendPeriods.map(({ month: m, year: y }) => loadClientsWithStatements(m, y)),
-  ])
+  const statementPeriods = [
+    { month, year },
+    { month: lastMonth, year: lastYear },
+    ...trendPeriods.map(({ month: m, year: y }) => ({ month: m, year: y })),
+  ]
+
+  const properties = await prisma.property.findMany({
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      unit_number: true,
+      client: { select: { name: true } },
+      owner: { select: { full_name: true } },
+    },
+  })
+
+  // Load one period at a time — parallel loads exhaust Supabase PgBouncer (max_client_conn).
+  const clientsByPeriod: Awaited<ReturnType<typeof loadClientsWithStatements>>[] = []
+  for (const period of statementPeriods) {
+    clientsByPeriod.push(
+      await loadClientsWithStatements(period.month, period.year, { omitBookings: true })
+    )
+  }
+
+  const [currentMonthClients, lastMonthClients, ...trendClientsByPeriod] = clientsByPeriod
 
   const currentPortfolio = aggregatePortfolioFromClients(currentMonthClients, month, year)
   const lastPortfolio = aggregatePortfolioFromClients(lastMonthClients, lastMonth, lastYear)

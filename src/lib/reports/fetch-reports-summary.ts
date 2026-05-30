@@ -66,18 +66,21 @@ export async function fetchReportsSummary(
 
   const monthKeys = monthsNeededForReports(parsed)
 
-  const [portfolioEntries, properties, activeClients, expenses] = await Promise.all([
-    Promise.all(
-      monthKeys.map(async ({ month, year }) => {
-        const clients = await loadClientsWithStatements(month, year, { omitBookings: true })
-        const summary = aggregatePortfolioFromClients(clients, month, year)
-        return {
-          key: portfolioMonthKey(month, year),
-          summary,
-          clients,
-        }
-      })
-    ),
+  const portfolioEntries: Array<{
+    key: string
+    summary: ReturnType<typeof aggregatePortfolioFromClients>
+    clients: ClientStatementSummary[]
+  }> = []
+  for (const { month, year } of monthKeys) {
+    const clients = await loadClientsWithStatements(month, year, { omitBookings: true })
+    portfolioEntries.push({
+      key: portfolioMonthKey(month, year),
+      summary: aggregatePortfolioFromClients(clients, month, year),
+      clients,
+    })
+  }
+
+  const [properties, activeClients, expenses] = await Promise.all([
     prisma.property.findMany({
       select: {
         id: true,

@@ -1,11 +1,10 @@
 import { PrismaClient } from "@prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
+import pg from "pg"
 import { assertServerEnvConfigured } from "@/lib/required-env"
 
 assertServerEnvConfigured()
 const connectionString = process.env.DATABASE_URL!
-
-const adapter = new PrismaPg({ connectionString })
 
 /** Bump when Client/Property schema changes so dev HMR does not reuse a stale PrismaClient. */
 const PRISMA_SCHEMA_VERSION = 9
@@ -13,6 +12,7 @@ const PRISMA_SCHEMA_VERSION = 9
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
   prismaSchemaVersion: number | undefined
+  pgPool: pg.Pool | undefined
 }
 
 /** Dev HMR can keep an old PrismaClient instance after `prisma generate` adds new fields/models. */
@@ -34,7 +34,20 @@ function isPrismaClientComplete(client: PrismaClient): boolean {
   )
 }
 
+function getPgPool(): pg.Pool {
+  if (globalForPrisma.pgPool) return globalForPrisma.pgPool
+
+  const max = Number(process.env.DATABASE_POOL_MAX ?? 5)
+  const pool = new pg.Pool({
+    connectionString,
+    max: Number.isFinite(max) && max > 0 ? max : 5,
+  })
+  globalForPrisma.pgPool = pool
+  return pool
+}
+
 function createPrismaClient(): PrismaClient {
+  const adapter = new PrismaPg(getPgPool())
   return new PrismaClient({ adapter })
 }
 
@@ -44,10 +57,8 @@ function getPrisma(): PrismaClient {
     return cached
   }
   const client = createPrismaClient()
-  if (process.env.NODE_ENV !== "production") {
-    globalForPrisma.prisma = client
-    globalForPrisma.prismaSchemaVersion = PRISMA_SCHEMA_VERSION
-  }
+  globalForPrisma.prisma = client
+  globalForPrisma.prismaSchemaVersion = PRISMA_SCHEMA_VERSION
   return client
 }
 
@@ -57,4 +68,3 @@ export const prisma = new Proxy({} as PrismaClient, {
     return Reflect.get(getPrisma(), prop, receiver)
   },
 })
-
