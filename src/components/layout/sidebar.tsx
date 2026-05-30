@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useEffect } from "react"
+import { BrandLogo } from "@/components/brand/brand-logo"
 import { usePathname, useRouter } from "next/navigation"
 import {
   BarChart3,
@@ -82,11 +83,9 @@ export function Sidebar({ email, role, mobileOpen = false, onNavigate, onClose }
       data-open={mobileOpen}
     >
       <div className="flex items-center justify-between gap-2 border-b border-[var(--spike-glass-border)] px-5 py-5">
-        <Link href="/dashboard" className="min-w-0" onClick={onNavigate}>
-          <p className="spike-sidebar-brand truncate text-lg font-bold tracking-tight">
-            Right Stay Africa
-          </p>
-          <p className="mt-0.5 truncate text-xs spike-text-muted">Portfolio management</p>
+        <Link href="/dashboard" className="min-w-0 flex-1" onClick={onNavigate}>
+          <BrandLogo variant="onDark" />
+          <p className="mt-1 truncate text-xs spike-text-muted">Portfolio management</p>
         </Link>
         <button
           type="button"

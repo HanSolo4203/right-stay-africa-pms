@@ -1,4 +1,6 @@
+import { isStatementActiveBookingStatus } from "@/lib/booking-status"
 import { statementExpenseItemsToManualLines } from "@/lib/clients/statement-expense-mappers"
+import { prorateBookingByMonth, type StatementBookingInput } from "@/lib/statement-calculator"
 import {
   coerceOwnerStatementManualLine,
   computeExpenses,
@@ -624,6 +626,86 @@ export function aggregatePortfolioFromClients(
       month,
       year,
       finalisedTotals,
+      previewTotals
+    ),
+  }
+}
+
+/** Lightweight portfolio preview for a month — used by dashboard trend (booking proration only). */
+export function buildPreviewPortfolioFromBookings(
+  bookings: StatementBookingInput[],
+  totalProperties: number,
+  month: number,
+  year: number
+): PortfolioPeriodSummary {
+  let grossRevenue = 0
+  let managementFees = 0
+  let ownerPayouts = 0
+  let bookedNights = 0
+  const bookingIds = new Set<string>()
+
+  for (const booking of bookings) {
+    if (!isStatementActiveBookingStatus(booking.status)) continue
+    const allocations = prorateBookingByMonth(booking).filter(
+      (a) => a.month === month && a.year === year
+    )
+    if (allocations.length === 0) continue
+    bookingIds.add(booking.id)
+    for (const a of allocations) {
+      grossRevenue = round2(grossRevenue + a.accommodation_total)
+      managementFees = round2(managementFees + a.total_management_fee)
+      ownerPayouts = round2(ownerPayouts + a.total_payout)
+      bookedNights += a.nights
+    }
+  }
+
+  const emptyFinalised = {
+    ownerPayouts: 0,
+    managementFees: 0,
+    additionalExpenses: 0,
+    grossRevenue: 0,
+    bookingCount: 0,
+    rightStayIncome: emptyRightStayIncome(),
+    propertiesWithFigures: 0,
+    finalisedPropertyCount: 0,
+  }
+  const previewTotals = {
+    ownerPayouts,
+    managementFees,
+    additionalExpenses: 0,
+    grossRevenue,
+    bookingCount: bookingIds.size,
+    rightStayIncome: sumRightStayIncome({
+      commission: managementFees,
+      cleaning: 0,
+      welcomePack: 0,
+      midStayClean: 0,
+      serviceFees: 0,
+    }),
+    propertiesWithFigures: bookingIds.size > 0 ? totalProperties : 0,
+  }
+
+  return {
+    month,
+    year,
+    totalProperties,
+    finalised: emptyFinalised,
+    preview: previewTotals,
+    expenseBreakdown: ALL_CATEGORIES.map((category) => ({
+      category,
+      label: PORTFOLIO_EXPENSE_CATEGORY_LABELS[category],
+      finalisedCharged: 0,
+      previewCharged: 0,
+      finalisedRsaIncome: 0,
+      previewRsaIncome: 0,
+    })),
+    propertyRows: [],
+    analytics: buildPortfolioAnalytics(
+      [],
+      totalProperties,
+      month,
+      year,
+      emptyFinalised,
       previewTotals
     ),
   }

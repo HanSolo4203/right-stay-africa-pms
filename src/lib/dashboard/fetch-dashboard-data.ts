@@ -12,7 +12,10 @@ import {
   subMonths,
 } from "date-fns"
 import { ClientStatus } from "@prisma/client"
-import { aggregatePortfolioFromClients } from "@/lib/clients/portfolio-period-summary"
+import {
+  aggregatePortfolioFromClients,
+  buildPreviewPortfolioFromBookings,
+} from "@/lib/clients/portfolio-period-summary"
 import { loadClientsWithStatements } from "@/lib/clients/statement-service"
 import { prisma } from "@/lib/prisma"
 import { STATEMENT_ACTIVE_BOOKING_STATUSES } from "@/lib/clients/statement-booking-window"
@@ -42,41 +45,27 @@ export async function fetchDashboardData(today: Date = new Date()): Promise<Dash
     return { month: d.getMonth() + 1, year: d.getFullYear(), label: format(d, "MMM") }
   })
 
-  const statementPeriods = [
-    { month, year },
-    { month: lastMonth, year: lastYear },
-    ...trendPeriods.map(({ month: m, year: y }) => ({ month: m, year: y })),
-  ]
-
-  const properties = await prisma.property.findMany({
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      unit_number: true,
-      client: { select: { name: true } },
-      owner: { select: { full_name: true } },
-    },
-  })
-
-  // Load one period at a time — parallel loads exhaust Supabase PgBouncer (max_client_conn).
-  const clientsByPeriod: Awaited<ReturnType<typeof loadClientsWithStatements>>[] = []
-  for (const period of statementPeriods) {
-    clientsByPeriod.push(
-      await loadClientsWithStatements(period.month, period.year, { omitBookings: true })
-    )
-  }
-
-  const [currentMonthClients, lastMonthClients, ...trendClientsByPeriod] = clientsByPeriod
-
-  const currentPortfolio = aggregatePortfolioFromClients(currentMonthClients, month, year)
-  const lastPortfolio = aggregatePortfolioFromClients(lastMonthClients, lastMonth, lastYear)
-  const trendPortfolios = trendPeriods.map(({ month: m, year: y, label }, index) => ({
-    label,
-    summary: aggregatePortfolioFromClients(trendClientsByPeriod[index]!, m, y),
-  }))
-
-  const [currentMonthBookings, scheduleBookings, activeClients] = await Promise.all([
+  const [
+    properties,
+    trendBookings,
+    currentMonthBookings,
+    scheduleBookings,
+    activeClients,
+  ] = await Promise.all([
+    prisma.property.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        unit_number: true,
+        client: { select: { name: true } },
+        owner: { select: { full_name: true } },
+      },
+    }),
+    prisma.booking.findMany({
+      where: dashboardBookingOverlapWhere(trendStart, currentMonthEnd),
+      select: dashboardBookingSelect,
+    }),
     prisma.booking.findMany({
       where: dashboardBookingOverlapWhere(currentMonthStart, currentMonthEnd),
       select: dashboardBookingSelect,
@@ -95,6 +84,20 @@ export async function fetchDashboardData(today: Date = new Date()): Promise<Dash
     }),
     prisma.client.count({ where: { status: ClientStatus.ACTIVE } }),
   ])
+
+  // Only current + last month need full statement previews; trend uses booking proration.
+  const [currentMonthClients, lastMonthClients] = await Promise.all([
+    loadClientsWithStatements(month, year, { omitBookings: true }),
+    loadClientsWithStatements(lastMonth, lastYear, { omitBookings: true }),
+  ])
+
+  const propertyCount = properties.length
+  const currentPortfolio = aggregatePortfolioFromClients(currentMonthClients, month, year)
+  const lastPortfolio = aggregatePortfolioFromClients(lastMonthClients, lastMonth, lastYear)
+  const trendPortfolios = trendPeriods.map(({ month: m, year: y, label }) => ({
+    label,
+    summary: buildPreviewPortfolioFromBookings(trendBookings, propertyCount, m, y),
+  }))
 
   return computeDashboardData({
     today,

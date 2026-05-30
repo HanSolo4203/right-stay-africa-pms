@@ -169,13 +169,14 @@ function DashboardSkeleton() {
 
 type DashboardHomeViewProps = {
   displayName: string
+  initialData?: DashboardApiResponse | null
 }
 
-export function DashboardHomeView({ displayName }: DashboardHomeViewProps) {
+export function DashboardHomeView({ displayName, initialData = null }: DashboardHomeViewProps) {
   const router = useRouter()
-  const [data, setData] = useState<DashboardApiResponse | null>(null)
+  const [data, setData] = useState<DashboardApiResponse | null>(initialData)
   const [error, setError] = useState<string | null>(null)
-  const [initialLoading, setInitialLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(!initialData)
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null)
   const [lastUpdatedLabel, setLastUpdatedLabel] = useState("Not updated yet")
@@ -189,6 +190,23 @@ export function DashboardHomeView({ displayName }: DashboardHomeViewProps) {
 
   const greeting = useMemo(() => getTimeOfDayGreeting(), [])
   const monthLabel = useMemo(() => format(new Date(), "MMMM yyyy"), [])
+
+  const loadMaintenanceStats = useCallback(async () => {
+    try {
+      const maintenanceRes = await fetch("/api/maintenance/stats").catch(() => null)
+      if (maintenanceRes?.ok) {
+        const ms = (await maintenanceRes.json()) as {
+          open: number
+          inProgress: number
+          urgent: number
+          completedThisMonth: number
+        }
+        setMaintenanceStats(ms)
+      }
+    } catch {
+      /* optional widget */
+    }
+  }, [])
 
   const loadDashboard = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
@@ -225,8 +243,13 @@ export function DashboardHomeView({ displayName }: DashboardHomeViewProps) {
   }, [])
 
   useEffect(() => {
+    if (initialData) {
+      setLastUpdatedAt(initialData.generatedAt)
+      void loadMaintenanceStats()
+      return
+    }
     void loadDashboard(false)
-  }, [loadDashboard])
+  }, [initialData, loadDashboard, loadMaintenanceStats])
 
   useEffect(() => {
     const interval = setInterval(() => {
